@@ -3,24 +3,8 @@
 """
 CC_AMT_PIPELINE Sanity Check Web App (v2.1)
 =============================================
-A Streamlit web app where team members upload their Excel file
-and instantly see validation results.
-
-SETUP (one-time):
-    pip install streamlit pandas openpyxl
-
-RUN:
-    streamlit run sanity_check_app.py
-
-CHANGELOG v2.1:
-    - Updated template: 20 sheets (added AID, MOVE_AID, CREATE_LG)
-    - AID added as source sheet with mandatory F,G,H,I columns
-    - Audit Date format: MM/DD/YYYY (strict 2-digit month)
-    - Updated usecases list (10 values)
-    - Duplicate detection by Address + ID combination
-    - Removed filename validation (not mandatory)
-    - Added INPUT BPID mandatory check for source sheets
-    - Added LMAQ team branding with Amazon logo background
+SETUP:  pip install streamlit pandas openpyxl
+RUN:    streamlit run sanity_check_app.py
 """
 
 import streamlit as st
@@ -39,109 +23,39 @@ st.set_page_config(
 )
 
 # ============================================================
-# CUSTOM CSS - Background Amazon Logo + LMAQ Team Name
+# BACKGROUND WATERMARK - Amazon Logo + LMAQ (behind content)
 # ============================================================
 st.markdown("""
 <style>
-/* Background watermark container */
-.stApp {
-    position: relative;
-}
-
-.stApp::before {
-    content: "";
+/* Watermark sits behind all content */
+.watermark {
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-image: url("https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg");
-    background-repeat: no-repeat;
-    background-position: center center;
-    background-size: 400px;
-    opacity: 0.04;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: -1;
     pointer-events: none;
-    z-index: 0;
-}
-
-/* Team name watermark */
-.stApp::after {
-    content: "LMAQ";
-    position: fixed;
-    bottom: 40px;
-    right: 40px;
-    font-size: 72px;
-    font-weight: 900;
-    color: rgba(255, 153, 0, 0.08);
-    letter-spacing: 8px;
-    pointer-events: none;
-    z-index: 0;
-    font-family: 'Amazon Ember', Arial, sans-serif;
-}
-
-/* Footer branding bar */
-.footer-brand {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    background: linear-gradient(90deg, #232F3E 0%, #37475A 100%);
-    color: #FF9900;
     text-align: center;
-    padding: 8px 0;
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: 2px;
-    z-index: 999;
+    opacity: 0.05;
 }
-
-/* Header branding */
-.header-brand {
-    background: linear-gradient(90deg, #232F3E 0%, #37475A 100%);
-    color: white;
-    padding: 12px 24px;
-    border-radius: 8px;
-    margin-bottom: 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+.watermark img {
+    width: 350px;
+    display: block;
+    margin: 0 auto;
 }
-
-.header-brand .team-name {
+.watermark .lmaq-text {
+    font-size: 90px;
+    font-weight: 900;
     color: #FF9900;
-    font-size: 24px;
-    font-weight: 800;
-    letter-spacing: 3px;
-}
-
-.header-brand .team-desc {
-    color: #ADB5BD;
-    font-size: 13px;
-}
-
-/* Add padding at bottom so content doesn't hide behind footer */
-.main .block-container {
-    padding-bottom: 60px;
+    letter-spacing: 15px;
+    font-family: Arial, sans-serif;
+    margin-top: 10px;
 }
 </style>
 
-<!-- Footer bar -->
-<div class="footer-brand">
-    ⚡ LMAQ Team | Location Management & Audit Quality ⚡
-</div>
-""", unsafe_allow_html=True)
-
-# Header branding
-st.markdown("""
-<div class="header-brand">
-    <div>
-        <span class="team-name">LMAQ</span>
-        <br>
-        <span class="team-desc">Location Management & Audit Quality</span>
-    </div>
-    <div style="color: #FF9900; font-size: 28px;">
-        📦 amazon
-    </div>
+<div class="watermark">
+    <img src="https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg" alt="">
+    <div class="lmaq-text">LMAQ</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -167,7 +81,6 @@ COMMAND_SHEETS = [
 
 SOURCE_SHEETS = ["CAMPUS", "BUILDING", "UNIT", "AID"]
 
-# Mandatory columns F, G, H, I for source sheets
 MANDATORY_SOURCE_COLUMNS = ["Usecase", "Auditor", "Audit Date", "INPUT BPID"]
 
 VALID_USECASES = [
@@ -187,7 +100,6 @@ COMMENT_COLUMNS = ["COMMENT", "COMMENTS", "Reviewer comments"]
 
 REVIEWER_COLUMNS = ["Reviewer usecase", "Reviewer alias", " Date", "Reviewer Verdict  ", "Reviewer comments"]
 
-# Duplicate check: Address column + ID column per source sheet
 DUPLICATE_KEY_COLUMNS = {
     "CAMPUS": ["Campus Address", "Campus ID(SOURCE)"],
     "BUILDING": ["Building Address", "BPID(SOURCE)"],
@@ -202,7 +114,6 @@ MAX_FILE_SIZE_MB = 1
 # ============================================================
 
 def check_file_size(file_bytes):
-    """Check if file is under 1 MB"""
     size_mb = len(file_bytes) / (1024 * 1024)
     if size_mb > MAX_FILE_SIZE_MB:
         return False, f"File is {size_mb:.2f} MB (limit: {MAX_FILE_SIZE_MB} MB)"
@@ -210,7 +121,6 @@ def check_file_size(file_bytes):
 
 
 def check_sheets(xls):
-    """Check for missing/extra sheets"""
     errors = []
     warnings = []
     actual_sheets = xls.sheet_names
@@ -227,7 +137,6 @@ def check_sheets(xls):
 
 
 def get_commands_from_source(xls):
-    """Get all commands used in source sheets (CAMPUS, BUILDING, UNIT, AID)"""
     commands = set()
     for sheet in SOURCE_SHEETS:
         if sheet in xls.sheet_names:
@@ -239,7 +148,6 @@ def get_commands_from_source(xls):
 
 
 def is_excluded_column(col_name, sheet_name):
-    """Check if column should be excluded from blank row check"""
     col_stripped = col_name.strip()
     if col_stripped in [c.strip() for c in COMMENT_COLUMNS]:
         return True
@@ -250,26 +158,21 @@ def is_excluded_column(col_name, sheet_name):
 
 
 def is_alpha_only(s):
-    """Check if string contains only alphabetical characters (alias format)"""
     return bool(re.match(r'^[a-zA-Z]+$', str(s).strip()))
 
 
 def is_valid_date(val):
-    """Check if value is a valid date in MM/DD/YYYY format (strict 2-digit month)"""
     if pd.isna(val):
         return False
-    # If pandas already parsed it as datetime
     if isinstance(val, (pd.Timestamp, datetime)):
         return True
     s = str(val).strip()
     if not s:
         return False
-    # Strict MM/DD/YYYY format
     try:
         parts = s.split("/")
         if len(parts) == 3:
             m_str, d_str, y_str = parts[0], parts[1], parts[2]
-            # Must be exactly 2 digits for month, 2 digits for day, 4 digits for year
             if len(m_str) == 2 and len(d_str) == 2 and len(y_str) == 4:
                 m, d, y = int(m_str), int(d_str), int(y_str)
                 if 1 <= m <= 12 and 1 <= d <= 31 and 2020 <= y <= 2030:
@@ -280,7 +183,6 @@ def is_valid_date(val):
 
 
 def check_mandatory_columns(df, sheet_name):
-    """Check that mandatory columns (F,G,H,I) are not blank in source sheets"""
     errors = []
     if sheet_name not in SOURCE_SHEETS:
         return errors
@@ -303,7 +205,6 @@ def check_mandatory_columns(df, sheet_name):
 
 
 def check_duplicate_rows(df, sheet_name):
-    """Check for duplicate rows based on Address + ID columns"""
     if sheet_name not in DUPLICATE_KEY_COLUMNS:
         return None
 
@@ -313,7 +214,6 @@ def check_duplicate_rows(df, sheet_name):
     if not available_keys or len(available_keys) < 2 or len(df) == 0:
         return None
 
-    # Only check rows where both key columns have values
     df_check = df[available_keys].copy()
     non_blank_mask = df_check.apply(
         lambda row: all(not (pd.isna(v) or str(v).strip() == "") for v in row), axis=1
@@ -336,7 +236,6 @@ def check_duplicate_rows(df, sheet_name):
 
 
 def validate_sheet(xls, sheet_name, commands):
-    """Validate a single sheet and return errors/warnings/passes"""
     errors = []
     warnings = []
     passes = []
@@ -346,7 +245,6 @@ def validate_sheet(xls, sheet_name, commands):
 
     df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
 
-    # For command sheets: skip if command not in source
     if sheet_name in COMMAND_SHEETS:
         sheet_upper = sheet_name.upper()
         command_found = any(
@@ -361,11 +259,10 @@ def validate_sheet(xls, sheet_name, commands):
                 errors.append("EMPTY but command exists in source sheets")
                 return errors, warnings, passes
 
-    # Skip if no data
     if len(df) == 0:
         return errors, warnings, passes
 
-    # --- Mandatory columns check (F, G, H, I) for source sheets ---
+    # Mandatory columns check (F, G, H, I) for source sheets
     if sheet_name in SOURCE_SHEETS:
         mandatory_errors = check_mandatory_columns(df, sheet_name)
         for err in mandatory_errors:
@@ -373,7 +270,7 @@ def validate_sheet(xls, sheet_name, commands):
         if not mandatory_errors:
             passes.append("Mandatory columns (Usecase, Auditor, Audit Date, INPUT BPID) all filled")
 
-    # --- Usecase validation ---
+    # Usecase validation
     if sheet_name in SOURCE_SHEETS or sheet_name in COMMAND_SHEETS:
         if "Usecase" in df.columns:
             usecase_vals = df["Usecase"].dropna().astype(str).str.strip()
@@ -389,7 +286,7 @@ def validate_sheet(xls, sheet_name, commands):
                 else:
                     passes.append("Usecase values valid")
 
-    # --- Auditor validation ---
+    # Auditor validation
     if sheet_name in SOURCE_SHEETS or sheet_name in COMMAND_SHEETS:
         if "Auditor" in df.columns:
             auditor_vals = df["Auditor"].dropna().astype(str).str.strip()
@@ -405,7 +302,7 @@ def validate_sheet(xls, sheet_name, commands):
                 else:
                     passes.append("Auditor values valid")
 
-    # --- Audit Date validation (MM/DD/YYYY format) ---
+    # Audit Date validation (MM/DD/YYYY format)
     if sheet_name in SOURCE_SHEETS or sheet_name in COMMAND_SHEETS:
         if "Audit Date" in df.columns:
             date_col = df["Audit Date"]
@@ -431,7 +328,7 @@ def validate_sheet(xls, sheet_name, commands):
                 else:
                     passes.append("Audit Date format valid (MM/DD/YYYY)")
 
-    # --- Blank rows check (excluding comment/reviewer columns) ---
+    # Blank rows check (excluding comment/reviewer columns)
     check_cols = [c for c in df.columns if not is_excluded_column(c, sheet_name)]
     if check_cols:
         df_check = df[check_cols]
@@ -448,7 +345,7 @@ def validate_sheet(xls, sheet_name, commands):
         else:
             passes.append("No blank rows")
 
-    # --- Duplicate row check (Address + ID) ---
+    # Duplicate row check (Address + ID)
     if sheet_name in DUPLICATE_KEY_COLUMNS:
         dup_result = check_duplicate_rows(df, sheet_name)
         if dup_result:
@@ -460,7 +357,6 @@ def validate_sheet(xls, sheet_name, commands):
 
 
 def generate_report(filename, all_errors, all_warnings, all_passes):
-    """Generate a text report of validation results"""
     lines = []
     lines.append("=" * 60)
     lines.append("CC_AMT_PIPELINE SANITY CHECK REPORT | LMAQ Team")
@@ -510,14 +406,13 @@ def generate_report(filename, all_errors, all_warnings, all_passes):
 # STREAMLIT UI
 # ============================================================
 
-# Header
+# Title
 st.title("🔍 CC_AMT_PIPELINE Sanity Checker")
 st.markdown("Upload your Excel file below to validate before WorkDocs upload.")
 st.markdown("---")
 
-# Sidebar with info
+# Sidebar
 with st.sidebar:
-    # Team branding in sidebar
     st.markdown("""
     <div style="text-align:center; padding:10px; background:#232F3E; border-radius:8px; margin-bottom:16px;">
         <div style="color:#FF9900; font-size:28px; font-weight:900; letter-spacing:4px;">LMAQ</div>
@@ -569,11 +464,9 @@ uploaded_file = st.file_uploader(
 if uploaded_file is not None:
     st.markdown("---")
 
-    # Read file bytes
     file_bytes = uploaded_file.read()
     uploaded_file.seek(0)
 
-    # Progress bar
     progress = st.progress(0, text="Starting validation...")
 
     all_errors = []
@@ -629,12 +522,9 @@ if uploaded_file is not None:
 
     progress.progress(100, text="✅ Validation complete!")
 
-    # ============================================================
     # DISPLAY RESULTS
-    # ============================================================
     st.markdown("---")
 
-    # Summary metrics
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         if len(all_errors) == 0:
@@ -650,7 +540,6 @@ if uploaded_file is not None:
 
     st.markdown("---")
 
-    # Big result banner
     if len(all_errors) == 0:
         st.success("## 🎉 ALL CHECKS PASSED!\nYour file is ready for WorkDocs upload.")
     else:
@@ -659,24 +548,20 @@ if uploaded_file is not None:
             f"{len(all_errors)} error(s) found. Fix and re-upload."
         )
 
-    # Errors section
     if all_errors:
         st.markdown("### ❌ Errors (Must Fix)")
         for idx, (sheet, err) in enumerate(all_errors, 1):
             st.markdown(f"**{idx}. [{sheet}]** {err}")
 
-    # Warnings section
     if all_warnings:
         st.markdown("### ⚠️ Warnings (Review Recommended)")
         for idx, (sheet, warn) in enumerate(all_warnings, 1):
             st.markdown(f"{idx}. **[{sheet}]** {warn}")
 
-    # Passes section
     with st.expander(f"✅ Passed Checks ({len(all_passes)})", expanded=False):
         for idx, (sheet, pas) in enumerate(all_passes, 1):
             st.markdown(f"{idx}. **[{sheet}]** {pas}")
 
-    # File info
     with st.expander("📄 File Information"):
         st.text(f"Filename: {uploaded_file.name}")
         st.text(f"Size: {len(file_bytes) / 1024:.1f} KB")
@@ -685,7 +570,6 @@ if uploaded_file is not None:
         st.text(f"Commands in source: {', '.join(sorted(commands)) if commands else 'None'}")
         st.text(f"Validated at: {datetime.now().strftime('%d-%b-%Y %H:%M:%S')}")
 
-    # Download report button
     st.markdown("---")
     report_text = generate_report(
         uploaded_file.name, all_errors, all_warnings, all_passes
@@ -698,7 +582,6 @@ if uploaded_file is not None:
     )
 
 else:
-    # Show instructions when no file uploaded
     st.info("👆 Upload your Excel file above to start validation.")
 
     st.markdown("### 🚀 Quick Start")
