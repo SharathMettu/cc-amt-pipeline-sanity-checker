@@ -1,137 +1,60 @@
 
-#!/usr/bin/env python3
-"""
-CC_AMT_PIPELINE Sanity Check Web App (v2.1)
-=============================================
-SETUP:  pip install streamlit pandas openpyxl
-RUN:    streamlit run sanity_check_app.py
-"""
-
 import streamlit as st
 import pandas as pd
-import re
+import os
 from datetime import datetime
-from io import BytesIO
-import streamlit.components.v1 as components
 
 # ============================================================
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="CC_AMT_PIPELINE Sanity Checker | LMAQ",
+    page_title="LMAQ Sanity Checker",
     page_icon="✅",
     layout="wide"
 )
 
 # ============================================================
-# HIDE ALL STREAMLIT DEFAULT UI ELEMENTS
+# CUSTOM CSS - Amazon theme + branding
 # ============================================================
-hide_streamlit_style = """
+st.markdown("""
 <style>
-/* Hide hamburger menu */
-#MainMenu {visibility: hidden !important; display: none !important;}
-
-/* Hide footer */
-footer {visibility: hidden !important; display: none !important;}
-
-/* Hide header/toolbar completely */
-header {visibility: hidden !important; display: none !important;}
-[data-testid="stHeader"] {display: none !important;}
-[data-testid="stToolbar"] {display: none !important;}
-
-/* Hide deploy/manage button - multiple selectors for different versions */
-.stDeployButton {display: none !important;}
-[data-testid="manage-app-button"] {display: none !important;}
-.viewerBadge_container__r5tak {display: none !important;}
-[data-testid="stStatusWidget"] {display: none !important;}
-.stAppDeployButton {display: none !important;}
-
-/* Nuclear option - hide anything fixed at bottom-right */
-div[class*="StatusWidget"] {display: none !important;}
-button[kind="manage"] {display: none !important;}
-div[data-testid="manage-app-button"] {display: none !important;}
-
-/* Background watermark - Amazon logo + LMAQ */
-.watermark {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: -1;
-    pointer-events: none;
-    text-align: center;
-    opacity: 0.05;
-}
-.watermark img {
-    width: 350px;
-    display: block;
-    margin: 0 auto;
-}
-.watermark .lmaq-text {
-    font-size: 90px;
-    font-weight: 900;
-    color: #FF9900;
-    letter-spacing: 15px;
-    font-family: Arial, sans-serif;
-    margin-top: 10px;
-}
-</style>
-
-<div class="watermark">
-    <img src="https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg" alt="">
-    <div class="lmaq-text">LMAQ</div>
-</div>
-"""
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
-
-# JavaScript to remove "Manage app" button that loads dynamically
-components.html("""
-<script>
-    // Repeatedly check and remove the manage app button
-    function hideManageButton() {
-        // Target all possible manage app elements
-        const selectors = [
-            '[data-testid="manage-app-button"]',
-            '.stDeployButton',
-            'button[kind="manage"]',
-            '.stAppDeployButton'
-        ];
-        selectors.forEach(sel => {
-            document.querySelectorAll(sel).forEach(el => {
-                el.style.display = 'none';
-                el.remove();
-            });
-        });
-
-        // Also check parent document (iframe escape)
-        try {
-            const parentDoc = window.parent.document;
-            selectors.forEach(sel => {
-                parentDoc.querySelectorAll(sel).forEach(el => {
-                    el.style.display = 'none';
-                    el.remove();
-                });
-            });
-            // Hide header in parent
-            const header = parentDoc.querySelector('header');
-            if (header) header.style.display = 'none';
-            const toolbar = parentDoc.querySelector('[data-testid="stToolbar"]');
-            if (toolbar) toolbar.style.display = 'none';
-            // Hide status widget (manage app lives here)
-            parentDoc.querySelectorAll('[data-testid="stStatusWidget"]').forEach(el => {
-                el.style.display = 'none';
-            });
-        } catch(e) {}
+    /* Hide Streamlit menu, footer, deploy button */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    .stDeployButton {display: none;}
+    header {visibility: hidden;}
+    [data-testid="manage-app-button"] {display: none;}
+    .viewerBadge_container__r5tak {display: none;}
+    [data-testid="stToolbar"] {display: none;}
+    
+    /* Background watermark */
+    .stApp::before {
+        content: "amazon";
+        position: fixed;
+        bottom: 20px;
+        right: 30px;
+        font-size: 40px;
+        font-weight: bold;
+        color: rgba(255, 153, 0, 0.08);
+        z-index: 0;
+        pointer-events: none;
     }
-
-    // Run immediately and keep checking every 500ms
-    hideManageButton();
-    setInterval(hideManageButton, 500);
-</script>
-""", height=0, width=0)
+    .stApp::after {
+        content: "LMAQ";
+        position: fixed;
+        bottom: 70px;
+        right: 30px;
+        font-size: 20px;
+        font-weight: bold;
+        color: rgba(35, 47, 62, 0.06);
+        z-index: 0;
+        pointer-events: none;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ============================================================
-# TEMPLATE DEFINITION (v2.1 - 20 sheets)
+# CONSTANTS
 # ============================================================
 REQUIRED_SHEETS = [
     "CASE DETAILS", "CAMPUS", "BUILDING", "UNIT", "AID",
@@ -142,533 +65,649 @@ REQUIRED_SHEETS = [
     "MOVE_AID", "CREATE_LG"
 ]
 
-COMMAND_SHEETS = [
-    "CREATE_CAMPUS", "MERGE_NODE", "CREATE_BUILDING", "GROUPING",
-    "MERGE_BUILDING_NODE", "REPARENT_NODE", "CREATE_DG",
-    "MERGE_LG_NODE", "MERGE_DG_NODE", "REPARENT_DG_NODE",
-    "REPARENT_LG_NODE", "DEPRECATE_NODE", "ADD_SOURCE_AND_CANONICAL_ADDRES",
-    "MOVE_AID", "CREATE_LG"
-]
-
-SOURCE_SHEETS = ["CAMPUS", "BUILDING", "UNIT", "AID"]
-
-MANDATORY_SOURCE_COLUMNS = ["Usecase", "Auditor", "Audit Date", "INPUT BPID"]
-
 VALID_USECASES = [
-    "CC_AB_Campus_Audit",
-    "CC_Cheetah_ORD_AUDIT",
-    "CC_ORD_Point_Corrections_EU",
-    "CC_ORD_Point_Corrections_NA",
-    "CC_ORD_Point_Corrections_Rocket_Stations_NA",
-    "CC_SIMS_Audit",
-    "DSP_Hierarchy_Building_P0",
-    "DSP_Hierarchy_Building_P1",
-    "DSP_Hierarchy_Unit_P0",
-    "CC_River-DSP_AUDIT"
+    "CC_AB_Campus_Audit", "CC_Cheetah_ORD_AUDIT",
+    "CC_ORD_Point_Corrections_EU", "CC_ORD_Point_Corrections_NA",
+    "CC_ORD_Point_Corrections_Rocket_Stations_NA", "CC_SIMS_Audit",
+    "DSP_Hierarchy_Building_P0", "DSP_Hierarchy_Building_P1",
+    "DSP_Hierarchy_Unit_P0", "CC_River-DSP_AUDIT"
 ]
 
-COMMENT_COLUMNS = ["COMMENT", "COMMENTS", "Reviewer comments"]
-
-REVIEWER_COLUMNS = ["Reviewer usecase", "Reviewer alias", " Date", "Reviewer Verdict  ", "Reviewer comments"]
-
-DUPLICATE_KEY_COLUMNS = {
-    "CAMPUS": ["Campus Address", "Campus ID(SOURCE)"],
-    "BUILDING": ["Building Address", "BPID(SOURCE)"],
-    "UNIT": ["Unit Address", "Unit PID(SOURCE)"],
-    "AID": ["AID Address", "AID"],
+SOURCE_SHEETS = {
+    "CAMPUS": {"address_col": "Campus Address", "id_col": "Campus ID(SOURCE)"},
+    "BUILDING": {"address_col": "Building Address", "id_col": "BPID(SOURCE)"},
+    "UNIT": {"address_col": "Unit Address", "id_col": "Unit PID(SOURCE)"},
+    "AID": {"address_col": "AID Address", "id_col": "AID"}
 }
+
+REVIEWER_COLS = ['Reviewer usecase', 'Reviewer alias', ' Date',
+                 'Reviewer Verdict  ', 'Reviewer comments']
+
+SKIP_COLS = REVIEWER_COLS + ['COMMENTS']
 
 MAX_FILE_SIZE_MB = 1
 
 # ============================================================
-# VALIDATION FUNCTIONS
+# HELPER FUNCTIONS
 # ============================================================
 
-def check_file_size(file_bytes):
-    size_mb = len(file_bytes) / (1024 * 1024)
-    if size_mb > MAX_FILE_SIZE_MB:
-        return False, f"File is {size_mb:.2f} MB (limit: {MAX_FILE_SIZE_MB} MB)"
-    return True, f"File size: {size_mb:.2f} MB ✓"
+def get_numeric_suffix(val):
+    """Extract trailing numeric characters from a string."""
+    suffix = ""
+    for ch in reversed(str(val)):
+        if ch.isdigit():
+            suffix = ch + suffix
+        else:
+            break
+    return suffix
 
 
-def check_sheets(xls):
-    errors = []
-    warnings = []
-    actual_sheets = xls.sheet_names
-
-    missing = [s for s in REQUIRED_SHEETS if s not in actual_sheets]
-    extra = [s for s in actual_sheets if s not in REQUIRED_SHEETS]
-
-    if missing:
-        errors.append(f"MISSING SHEETS: {', '.join(missing)}")
-    if extra:
-        warnings.append(f"EXTRA SHEETS (unexpected): {', '.join(extra)}")
-
-    return errors, warnings
-
-
-def get_commands_from_source(xls):
-    commands = set()
-    for sheet in SOURCE_SHEETS:
-        if sheet in xls.sheet_names:
-            df = pd.read_excel(xls, sheet_name=sheet, header=0)
-            if "COMMAND" in df.columns:
-                cmds = df["COMMAND"].dropna().astype(str).str.strip().str.upper()
-                commands.update(cmds[cmds != ""])
-    return commands
-
-
-def is_excluded_column(col_name, sheet_name):
-    col_stripped = col_name.strip()
-    if col_stripped in [c.strip() for c in COMMENT_COLUMNS]:
-        return True
-    if sheet_name in SOURCE_SHEETS:
-        if col_stripped in [c.strip() for c in REVIEWER_COLUMNS]:
-            return True
-    return False
-
-
-def is_alpha_only(s):
-    return bool(re.match(r'^[a-zA-Z]+$', str(s).strip()))
+def check_drag_down(df, sheet_name, skip_cols=None):
+    """
+    Detect drag-down/fill-down errors where values increment by +1.
+    Returns list of column names with sequential patterns.
+    """
+    if skip_cols is None:
+        skip_cols = SKIP_COLS
+    
+    flagged_columns = []
+    check_columns = [col for col in df.columns if col not in skip_cols]
+    
+    for col in check_columns:
+        values = df[col].dropna().reset_index(drop=True)
+        
+        if len(values) < 4:
+            continue
+        
+        consecutive_count = 0
+        detected = False
+        
+        for i in range(1, len(values)):
+            curr_val = str(values.iloc[i]).strip()
+            prev_val = str(values.iloc[i - 1]).strip()
+            
+            if curr_val == "" or prev_val == "":
+                consecutive_count = 0
+                continue
+            
+            is_increment = False
+            
+            # Case 1: Both are pure numbers
+            try:
+                curr_num = float(curr_val)
+                prev_num = float(prev_val)
+                if curr_num - prev_num == 1:
+                    is_increment = True
+            except (ValueError, TypeError):
+                # Case 2: Text ending with numbers
+                curr_suffix = get_numeric_suffix(curr_val)
+                prev_suffix = get_numeric_suffix(prev_val)
+                
+                if curr_suffix and prev_suffix:
+                    curr_prefix = curr_val[:-len(curr_suffix)]
+                    prev_prefix = prev_val[:-len(prev_suffix)]
+                    
+                    if curr_prefix == prev_prefix:
+                        try:
+                            if float(curr_suffix) - float(prev_suffix) == 1:
+                                is_increment = True
+                        except (ValueError, TypeError):
+                            pass
+            
+            if is_increment:
+                consecutive_count += 1
+                if consecutive_count >= 3:
+                    flagged_columns.append(col)
+                    detected = True
+                    break
+            else:
+                consecutive_count = 0
+        
+    return flagged_columns
 
 
 def is_valid_date(val):
+    """Check if date is in M/DD/YYYY or MM/DD/YYYY format."""
     if pd.isna(val):
         return False
-    if isinstance(val, (pd.Timestamp, datetime)):
-        return True
+    
     s = str(val).strip()
-    if not s:
+    
+    # If pandas parsed as Timestamp, format it
+    if isinstance(val, pd.Timestamp):
+        s = val.strftime("%-m/%d/%Y")  # This may vary by OS
+        # Fallback: just check the original
+    
+    # Must contain exactly 2 slashes
+    if s.count('/') != 2:
         return False
+    
+    parts = s.split('/')
+    if len(parts) != 3:
+        return False
+    
+    # Month: 1-2 digits, Day: 1-2 digits, Year: 4 digits
+    if len(parts[0]) < 1 or len(parts[0]) > 2:
+        return False
+    if len(parts[1]) < 1 or len(parts[1]) > 2:
+        return False
+    if len(parts[2]) != 4:
+        return False
+    
     try:
-        parts = s.split("/")
-        if len(parts) == 3:
-            m_str, d_str, y_str = parts[0], parts[1], parts[2]
-            if len(m_str) == 2 and len(d_str) == 2 and len(y_str) == 4:
-                m, d, y = int(m_str), int(d_str), int(y_str)
-                if 1 <= m <= 12 and 1 <= d <= 31 and 2020 <= y <= 2030:
-                    return True
-    except (ValueError, IndexError):
-        pass
-    return False
+        m = int(parts[0])
+        d = int(parts[1])
+        y = int(parts[2])
+    except ValueError:
+        return False
+    
+    # Month 1-12 (catches 23/7/2026 because 23 > 12)
+    if m < 1 or m > 12:
+        return False
+    if d < 1 or d > 31:
+        return False
+    if y < 2020 or y > 2030:
+        return False
+    
+    return True
 
 
-def check_mandatory_columns(df, sheet_name):
-    errors = []
-    if sheet_name not in SOURCE_SHEETS:
-        return errors
-
-    for col_name in MANDATORY_SOURCE_COLUMNS:
-        if col_name in df.columns:
-            blank_count = df[col_name].apply(
-                lambda v: pd.isna(v) or str(v).strip() == ""
-            ).sum()
-            if blank_count > 0:
-                blank_rows = df[df[col_name].apply(
-                    lambda v: pd.isna(v) or str(v).strip() == ""
-                )].index + 2
-                sample_rows = blank_rows.tolist()[:5]
-                errors.append(
-                    f"MANDATORY column '{col_name}' has {blank_count} blank cell(s) "
-                    f"at Excel row(s): {sample_rows}{'...' if blank_count > 5 else ''}"
-                )
-    return errors
+def is_alpha_only(val):
+    """Check if value contains only alphabetical characters."""
+    if pd.isna(val):
+        return False
+    s = str(val).strip()
+    if s == "":
+        return False
+    return s.isalpha()
 
 
-def check_duplicate_rows(df, sheet_name):
-    if sheet_name not in DUPLICATE_KEY_COLUMNS:
-        return None
+# ============================================================
+# MAIN VALIDATION FUNCTION
+# ============================================================
 
-    key_columns = DUPLICATE_KEY_COLUMNS[sheet_name]
-    available_keys = [c for c in key_columns if c in df.columns]
-
-    if not available_keys or len(available_keys) < 2 or len(df) == 0:
-        return None
-
-    df_check = df[available_keys].copy()
-    non_blank_mask = df_check.apply(
-        lambda row: all(not (pd.isna(v) or str(v).strip() == "") for v in row), axis=1
-    )
-    df_check = df_check[non_blank_mask]
-
-    if len(df_check) == 0:
-        return None
-
-    duplicates = df_check[df_check.duplicated(keep=False)]
-    if len(duplicates) > 0:
-        dup_count = df_check.duplicated(keep='first').sum()
-        dup_rows = (duplicates[duplicates.duplicated(keep='first')].index + 2).tolist()[:5]
-        return (
-            f"{dup_count} DUPLICATE ROW(S) based on "
-            f"[{' + '.join(available_keys)}] at Excel row(s): "
-            f"{dup_rows}{'...' if dup_count > 5 else ''}"
-        )
-    return None
-
-
-def validate_sheet(xls, sheet_name, commands):
-    errors = []
-    warnings = []
-    passes = []
-
-    if sheet_name not in xls.sheet_names:
-        return errors, warnings, passes
-
-    df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
-
-    if sheet_name in COMMAND_SHEETS:
-        sheet_upper = sheet_name.upper()
-        command_found = any(
-            sheet_upper in cmd or cmd in sheet_upper
-            for cmd in commands
-        )
-        if not command_found:
-            passes.append("Skipped (command not used in source sheets)")
-            return errors, warnings, passes
-        else:
-            if len(df) == 0:
-                errors.append("EMPTY but command exists in source sheets")
-                return errors, warnings, passes
-
-    if len(df) == 0:
-        return errors, warnings, passes
-
-    # Mandatory columns check (F, G, H, I) for source sheets
-    if sheet_name in SOURCE_SHEETS:
-        mandatory_errors = check_mandatory_columns(df, sheet_name)
-        for err in mandatory_errors:
-            errors.append(err)
-        if not mandatory_errors:
-            passes.append("Mandatory columns (Usecase, Auditor, Audit Date, INPUT BPID) all filled")
-
-    # Usecase validation
-    if sheet_name in SOURCE_SHEETS or sheet_name in COMMAND_SHEETS:
-        if "Usecase" in df.columns:
-            usecase_vals = df["Usecase"].dropna().astype(str).str.strip()
-            usecase_vals = usecase_vals[usecase_vals != ""]
-            if len(usecase_vals) > 0:
-                invalid = usecase_vals[~usecase_vals.isin(VALID_USECASES)]
-                if len(invalid) > 0:
-                    sample = invalid.head(3).tolist()
-                    errors.append(
-                        f"INVALID USECASE in {len(invalid)} row(s). "
-                        f"Examples: {sample}"
-                    )
-                else:
-                    passes.append("Usecase values valid")
-
-    # Auditor validation
-    if sheet_name in SOURCE_SHEETS or sheet_name in COMMAND_SHEETS:
-        if "Auditor" in df.columns:
-            auditor_vals = df["Auditor"].dropna().astype(str).str.strip()
-            auditor_vals = auditor_vals[auditor_vals != ""]
-            if len(auditor_vals) > 0:
-                invalid_auditors = auditor_vals[~auditor_vals.apply(is_alpha_only)]
-                if len(invalid_auditors) > 0:
-                    sample = invalid_auditors.head(3).tolist()
-                    errors.append(
-                        f"INVALID AUDITOR (must be alphabetical only) in "
-                        f"{len(invalid_auditors)} row(s). Examples: {sample}"
-                    )
-                else:
-                    passes.append("Auditor values valid")
-
-    # Audit Date validation (MM/DD/YYYY format)
-    if sheet_name in SOURCE_SHEETS or sheet_name in COMMAND_SHEETS:
-        if "Audit Date" in df.columns:
-            date_col = df["Audit Date"]
-            non_blank_dates = date_col.dropna()
-            non_blank_dates = non_blank_dates[non_blank_dates.astype(str).str.strip() != ""]
-
-            if len(non_blank_dates) > 0:
-                invalid_dates = 0
-                invalid_rows = []
-                for idx, val in date_col.items():
-                    if not (pd.isna(val) or str(val).strip() == ""):
-                        if not is_valid_date(val):
-                            invalid_dates += 1
-                            if len(invalid_rows) < 5:
-                                invalid_rows.append(idx + 2)
-
-                if invalid_dates > 0:
-                    errors.append(
-                        f"INVALID AUDIT DATE FORMAT in {invalid_dates} row(s) "
-                        f"(must be MM/DD/YYYY) at Excel row(s): "
-                        f"{invalid_rows}{'...' if invalid_dates > 5 else ''}"
-                    )
-                else:
-                    passes.append("Audit Date format valid (MM/DD/YYYY)")
-
-    # Blank rows check (excluding comment/reviewer columns)
-    check_cols = [c for c in df.columns if not is_excluded_column(c, sheet_name)]
-    if check_cols:
-        df_check = df[check_cols]
-        blank_mask = df_check.apply(
-            lambda row: all(pd.isna(v) or str(v).strip() == "" for v in row), axis=1
-        )
-        blank_count = blank_mask.sum()
-        if blank_count > 0:
-            blank_rows = (blank_mask[blank_mask].index + 2).tolist()[:5]
-            errors.append(
-                f"{blank_count} BLANK ROW(S) found at Excel row(s): "
-                f"{blank_rows}{'...' if blank_count > 5 else ''}"
-            )
-        else:
-            passes.append("No blank rows")
-
-    # Duplicate row check (Address + ID)
-    if sheet_name in DUPLICATE_KEY_COLUMNS:
-        dup_result = check_duplicate_rows(df, sheet_name)
-        if dup_result:
-            warnings.append(dup_result)
-        else:
-            passes.append("No duplicate rows detected")
-
-    return errors, warnings, passes
-
-
-def generate_report(filename, all_errors, all_warnings, all_passes):
-    lines = []
-    lines.append("=" * 60)
-    lines.append("CC_AMT_PIPELINE SANITY CHECK REPORT | LMAQ Team")
-    lines.append("=" * 60)
-    lines.append(f"File: {filename}")
-    lines.append(f"Date: {datetime.now().strftime('%d-%b-%Y %H:%M:%S')}")
-    lines.append(f"Template Version: v2.1 (20 sheets)")
-    lines.append("")
-
-    if all_errors:
-        lines.append(f"RESULT: FAILED ({len(all_errors)} error(s))")
+def run_sanity_check(uploaded_file):
+    """Run all sanity checks and return results."""
+    
+    results = []  # List of dicts: {status, sheet, check, details}
+    
+    # ----------------------------------------------------------
+    # CHECK 1: File Size
+    # ----------------------------------------------------------
+    file_size_mb = uploaded_file.size / (1024 * 1024)
+    if file_size_mb > MAX_FILE_SIZE_MB:
+        results.append({
+            "status": "ERROR",
+            "sheet": "FILE",
+            "check": "File Size",
+            "details": f"File is {file_size_mb:.2f} MB (limit: {MAX_FILE_SIZE_MB} MB)"
+        })
     else:
-        lines.append("RESULT: PASSED")
-    lines.append("")
-
-    if all_errors:
-        lines.append("-" * 40)
-        lines.append("ERRORS (Must Fix):")
-        lines.append("-" * 40)
-        for i, (sheet, err) in enumerate(all_errors, 1):
-            lines.append(f"  {i}. [{sheet}] {err}")
-        lines.append("")
-
-    if all_warnings:
-        lines.append("-" * 40)
-        lines.append("WARNINGS (Review Recommended):")
-        lines.append("-" * 40)
-        for i, (sheet, warn) in enumerate(all_warnings, 1):
-            lines.append(f"  {i}. [{sheet}] {warn}")
-        lines.append("")
-
-    lines.append("-" * 40)
-    lines.append(f"PASSED CHECKS ({len(all_passes)}):")
-    lines.append("-" * 40)
-    for i, (sheet, pas) in enumerate(all_passes, 1):
-        lines.append(f"  {i}. [{sheet}] {pas}")
-
-    lines.append("")
-    lines.append("=" * 60)
-    lines.append("Generated by LMAQ Sanity Checker v2.1")
-    lines.append("=" * 60)
-
-    return "\n".join(lines)
+        results.append({
+            "status": "PASS",
+            "sheet": "FILE",
+            "check": "File Size",
+            "details": f"File size: {file_size_mb:.2f} MB"
+        })
+    
+    # ----------------------------------------------------------
+    # Read all sheets
+    # ----------------------------------------------------------
+    try:
+        xl = pd.ExcelFile(uploaded_file)
+        sheet_names = xl.sheet_names
+    except Exception as e:
+        results.append({
+            "status": "ERROR",
+            "sheet": "FILE",
+            "check": "File Read",
+            "details": f"Cannot read file: {str(e)}"
+        })
+        return results
+    
+    # ----------------------------------------------------------
+    # CHECK 2: Sheet Structure
+    # ----------------------------------------------------------
+    missing_sheets = [s for s in REQUIRED_SHEETS if s not in sheet_names]
+    extra_sheets = [s for s in sheet_names if s not in REQUIRED_SHEETS]
+    
+    if missing_sheets:
+        results.append({
+            "status": "ERROR",
+            "sheet": "SHEETS",
+            "check": "Missing Sheets",
+            "details": f"MISSING: {', '.join(missing_sheets)}"
+        })
+    
+    if extra_sheets:
+        results.append({
+            "status": "WARNING",
+            "sheet": "SHEETS",
+            "check": "Extra Sheets",
+            "details": f"EXTRA: {', '.join(extra_sheets)}"
+        })
+    
+    if not missing_sheets and not extra_sheets:
+        results.append({
+            "status": "PASS",
+            "sheet": "SHEETS",
+            "check": "Sheet Structure",
+            "details": "All 20 required sheets present, no extra"
+        })
+    
+    # ----------------------------------------------------------
+    # CHECK 3-9: Source Sheet Validations
+    # ----------------------------------------------------------
+    for sheet_name, config in SOURCE_SHEETS.items():
+        if sheet_name not in sheet_names:
+            results.append({
+                "status": "ERROR",
+                "sheet": sheet_name,
+                "check": "Sheet Missing",
+                "details": "Sheet not found in workbook"
+            })
+            continue
+        
+        try:
+            df = pd.read_excel(xl, sheet_name=sheet_name, dtype=str)
+        except Exception as e:
+            results.append({
+                "status": "ERROR",
+                "sheet": sheet_name,
+                "check": "Read Error",
+                "details": f"Cannot read sheet: {str(e)}"
+            })
+            continue
+        
+        if len(df) == 0:
+            results.append({
+                "status": "PASS",
+                "sheet": sheet_name,
+                "check": "All Checks",
+                "details": "Sheet is empty (no data rows) - skipped"
+            })
+            continue
+        
+        # --- CHECK 3: Mandatory Columns ---
+        mandatory_cols = ['Usecase', 'Auditor', 'Audit Date', 'INPUT BPID']
+        mandatory_errors = []
+        
+        for col in mandatory_cols:
+            if col in df.columns:
+                blank_count = df[col].isna().sum() + (df[col].astype(str).str.strip() == '').sum()
+                # Subtract rows where NaN counted twice
+                blank_count = df[col].apply(
+                    lambda x: pd.isna(x) or str(x).strip() == '' or str(x).strip().lower() == 'nan'
+                ).sum()
+                if blank_count > 0:
+                    mandatory_errors.append(f"{col}: {blank_count} blank")
+            else:
+                mandatory_errors.append(f"{col}: column not found")
+        
+        if mandatory_errors:
+            for err in mandatory_errors:
+                results.append({
+                    "status": "ERROR",
+                    "sheet": sheet_name,
+                    "check": f"Mandatory - {err.split(':')[0]}",
+                    "details": err
+                })
+        else:
+            results.append({
+                "status": "PASS",
+                "sheet": sheet_name,
+                "check": "Mandatory Columns",
+                "details": "All mandatory columns filled"
+            })
+        
+        # --- CHECK 4: Blank Rows (cols F onwards, excl COMMENTS) ---
+        check_cols = [c for c in df.columns if c not in SKIP_COLS]
+        if check_cols:
+            blank_rows = []
+            for idx, row in df.iterrows():
+                is_blank = True
+                for col in check_cols:
+                    val = row.get(col, None)
+                    if not pd.isna(val) and str(val).strip() != '' and str(val).strip().lower() != 'nan':
+                        is_blank = False
+                        break
+                if is_blank:
+                    blank_rows.append(idx + 2)  # +2 for header + 0-index
+            
+            if blank_rows:
+                display_rows = blank_rows[:5]
+                results.append({
+                    "status": "ERROR",
+                    "sheet": sheet_name,
+                    "check": "Blank Rows",
+                    "details": f"{len(blank_rows)} blank row(s) at row(s): {', '.join(map(str, display_rows))}"
+                })
+            else:
+                results.append({
+                    "status": "PASS",
+                    "sheet": sheet_name,
+                    "check": "Blank Rows",
+                    "details": "No blank rows found"
+                })
+        
+        # --- CHECK 5: Usecase Validation ---
+        if 'Usecase' in df.columns:
+            usecase_vals = df['Usecase'].dropna()
+            usecase_vals = usecase_vals[usecase_vals.astype(str).str.strip() != '']
+            usecase_vals = usecase_vals[usecase_vals.astype(str).str.strip().str.lower() != 'nan']
+            
+            invalid_uc = usecase_vals[~usecase_vals.isin(VALID_USECASES)]
+            if len(invalid_uc) > 0:
+                examples = invalid_uc.head(3).tolist()
+                results.append({
+                    "status": "ERROR",
+                    "sheet": sheet_name,
+                    "check": "Usecase Validation",
+                    "details": f"{len(invalid_uc)} invalid value(s). Examples: {', '.join(map(str, examples))}"
+                })
+            else:
+                results.append({
+                    "status": "PASS",
+                    "sheet": sheet_name,
+                    "check": "Usecase Validation",
+                    "details": "All usecase values from approved list"
+                })
+        
+        # --- CHECK 6: Auditor Validation (alpha only) ---
+        if 'Auditor' in df.columns:
+            auditor_vals = df['Auditor'].dropna()
+            auditor_vals = auditor_vals[auditor_vals.astype(str).str.strip() != '']
+            auditor_vals = auditor_vals[auditor_vals.astype(str).str.strip().str.lower() != 'nan']
+            
+            invalid_aud = auditor_vals[~auditor_vals.astype(str).str.strip().str.isalpha()]
+            if len(invalid_aud) > 0:
+                examples = invalid_aud.head(3).tolist()
+                results.append({
+                    "status": "ERROR",
+                    "sheet": sheet_name,
+                    "check": "Auditor Validation",
+                    "details": f"{len(invalid_aud)} invalid value(s). Must be alpha only. Examples: {', '.join(map(str, examples))}"
+                })
+            else:
+                results.append({
+                    "status": "PASS",
+                    "sheet": sheet_name,
+                    "check": "Auditor Validation",
+                    "details": "All auditor aliases valid (alpha only)"
+                })
+        
+        # --- CHECK 7: Audit Date Format (M/DD/YYYY or MM/DD/YYYY) ---
+        if 'Audit Date' in df.columns:
+            date_vals = df['Audit Date'].dropna()
+            date_vals = date_vals[date_vals.astype(str).str.strip() != '']
+            date_vals = date_vals[date_vals.astype(str).str.strip().str.lower() != 'nan']
+            
+            invalid_dates = []
+            for idx, val in date_vals.items():
+                if not is_valid_date(val):
+                    invalid_dates.append(f"Row {idx + 2} ('{val}')")
+            
+            if invalid_dates:
+                display_dates = invalid_dates[:5]
+                results.append({
+                    "status": "ERROR",
+                    "sheet": sheet_name,
+                    "check": "Audit Date Format",
+                    "details": f"{len(invalid_dates)} invalid date(s). Must be M/DD/YYYY or MM/DD/YYYY. At: {', '.join(display_dates)}"
+                })
+            else:
+                results.append({
+                    "status": "PASS",
+                    "sheet": sheet_name,
+                    "check": "Audit Date Format",
+                    "details": "All dates valid"
+                })
+        
+        # --- CHECK 8: Duplicate Detection (Address + ID) ---
+        addr_col = config["address_col"]
+        id_col = config["id_col"]
+        
+        if addr_col in df.columns and id_col in df.columns:
+            dup_df = df[[addr_col, id_col]].dropna(how='all')
+            dup_df = dup_df[
+                (dup_df[addr_col].astype(str).str.strip() != '') & 
+                (dup_df[id_col].astype(str).str.strip() != '')
+            ]
+            duplicates = dup_df[dup_df.duplicated(keep='first')]
+            
+            if len(duplicates) > 0:
+                results.append({
+                    "status": "WARNING",
+                    "sheet": sheet_name,
+                    "check": "Duplicate Rows",
+                    "details": f"{len(duplicates)} duplicate(s) based on [{addr_col} + {id_col}]"
+                })
+            else:
+                results.append({
+                    "status": "PASS",
+                    "sheet": sheet_name,
+                    "check": "Duplicate Rows",
+                    "details": f"No duplicates on [{addr_col} + {id_col}]"
+                })
+        
+        # --- CHECK 9: Drag-Down Detection ---
+        drag_cols = check_drag_down(df, sheet_name, SKIP_COLS)
+        
+        if drag_cols:
+            results.append({
+                "status": "ERROR",
+                "sheet": sheet_name,
+                "check": "Drag-Down Detected",
+                "details": f"Values incrementing by +1 in: {', '.join(drag_cols)} (likely fill-down error)"
+            })
+        else:
+            results.append({
+                "status": "PASS",
+                "sheet": sheet_name,
+                "check": "Drag-Down Check",
+                "details": "No sequential +1 patterns detected"
+            })
+    
+    # ----------------------------------------------------------
+    # CHECK 10: Command Sheet Validation
+    # ----------------------------------------------------------
+    # Collect all COMMAND values from source sheets
+    all_commands = set()
+    for sheet_name_src in SOURCE_SHEETS.keys():
+        if sheet_name_src in sheet_names:
+            try:
+                df_src = pd.read_excel(xl, sheet_name=sheet_name_src, dtype=str)
+                if 'COMMAND' in df_src.columns:
+                    cmds = df_src['COMMAND'].dropna()
+                    cmds = cmds[cmds.astype(str).str.strip() != '']
+                    cmds = cmds[cmds.astype(str).str.strip().str.lower() != 'nan']
+                    for cmd in cmds:
+                        all_commands.add(str(cmd).strip().upper())
+            except Exception:
+                pass
+    
+    command_sheets = [s for s in REQUIRED_SHEETS if s not in 
+                      ["CASE DETAILS", "CAMPUS", "BUILDING", "UNIT", "AID"]]
+    
+    for cmd_sheet in command_sheets:
+        if cmd_sheet not in sheet_names:
+            continue
+        
+        # Check if this command is used in source sheets
+        command_found = False
+        for cmd in all_commands:
+            if cmd_sheet.upper() in cmd or cmd in cmd_sheet.upper():
+                command_found = True
+                break
+        
+        if command_found:
+            try:
+                df_cmd = pd.read_excel(xl, sheet_name=cmd_sheet, dtype=str)
+                if len(df_cmd) == 0:
+                    results.append({
+                        "status": "ERROR",
+                        "sheet": cmd_sheet,
+                        "check": "Command Sheet",
+                        "details": "EMPTY but command exists in source sheets"
+                    })
+                else:
+                    results.append({
+                        "status": "PASS",
+                        "sheet": cmd_sheet,
+                        "check": "Command Sheet",
+                        "details": f"Has data ({len(df_cmd)} rows)"
+                    })
+            except Exception:
+                results.append({
+                    "status": "ERROR",
+                    "sheet": cmd_sheet,
+                    "check": "Command Sheet",
+                    "details": "Cannot read sheet"
+                })
+        else:
+            results.append({
+                "status": "PASS",
+                "sheet": cmd_sheet,
+                "check": "Command Sheet",
+                "details": "Skipped (command not used in source)"
+            })
+    
+    return results
 
 
 # ============================================================
 # STREAMLIT UI
 # ============================================================
 
-# Title
-st.title("🔍 CC_AMT_PIPELINE Sanity Checker")
-st.markdown("Upload your Excel file below to validate before WorkDocs upload.")
-st.markdown("---")
+# Header
+st.markdown("""
+<div style="background-color: #232F3E; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+    <h2 style="color: #FF9900; margin: 0; text-align: center;">
+        LMAQ | Last Mile Analytics & Quality
+    </h2>
+</div>
+""", unsafe_allow_html=True)
 
-# Sidebar
-with st.sidebar:
-    st.markdown("""
-    <div style="text-align:center; padding:10px; background:#232F3E; border-radius:8px; margin-bottom:16px;">
-        <div style="color:#FF9900; font-size:28px; font-weight:900; letter-spacing:4px;">LMAQ</div>
-        <div style="color:#ADB5BD; font-size:11px;">Last Mile Analytics & Quality</div>
-    </div>
-    """, unsafe_allow_html=True)
+st.title("CC_AMT_PIPELINE Sanity Checker")
+st.caption("Upload your Excel file to validate before WorkDocs upload. Your file is NEVER modified.")
 
-    st.header("📋 Validation Rules")
-    st.markdown("""
-    1. **File size** < 1 MB
-    2. **20 sheets** required (no missing)
-    3. **Mandatory columns** (F,G,H,I) in source sheets cannot be blank
-    4. **No blank rows** (excl. Comments & Reviewer cols)
-    5. **Usecase** must be from approved list (case-sensitive)
-    6. **Auditor** must be alphabetical only (alias)
-    7. **Audit Date** mandatory, **MM/DD/YYYY** format
-    8. **Command sheets** validated only if command in source
-    9. **Duplicate rows** flagged (Address + ID combination)
-    """)
-
-    st.markdown("---")
-    st.header("✅ Valid Usecases")
-    for uc in VALID_USECASES:
-        st.code(uc, language=None)
-
-    st.markdown("---")
-    st.header("📂 Required Sheets (20)")
-    st.markdown("**Source Sheets:**")
-    for s in SOURCE_SHEETS:
-        st.text(f"  • {s}")
-    st.markdown("**Command Sheets:**")
-    for s in COMMAND_SHEETS:
-        st.text(f"  • {s}")
-    st.markdown("**Other:**")
-    st.text("  • CASE DETAILS")
-
-    st.markdown("---")
-    st.header("🔑 Duplicate Check Keys")
-    for sheet, cols in DUPLICATE_KEY_COLUMNS.items():
-        st.text(f"  {sheet}: {' + '.join(cols)}")
-
-# File upload
+# File uploader
 uploaded_file = st.file_uploader(
-    "📁 Upload your CC_AMT_PIPELINE Excel file",
+    "Select your CC_AMT_PIPELINE Excel file",
     type=["xlsx", "xls"],
-    help="File must be .xlsx format and under 1 MB"
+    help="Upload the pipeline Excel file to run sanity checks"
 )
 
 if uploaded_file is not None:
+    
     st.markdown("---")
-
-    file_bytes = uploaded_file.read()
-    uploaded_file.seek(0)
-
-    progress = st.progress(0, text="Starting validation...")
-
-    all_errors = []
-    all_warnings = []
-    all_passes = []
-
-    # CHECK 1: File Size
-    progress.progress(5, text="Checking file size...")
-    size_ok, size_msg = check_file_size(file_bytes)
-    if not size_ok:
-        all_errors.append(("FILE", size_msg))
+    
+    # Run validation
+    with st.spinner("🔍 Running sanity checks..."):
+        start_time = datetime.now()
+        results = run_sanity_check(uploaded_file)
+        elapsed = (datetime.now() - start_time).total_seconds()
+    
+    # Count results
+    error_count = sum(1 for r in results if r["status"] == "ERROR")
+    warning_count = sum(1 for r in results if r["status"] == "WARNING")
+    pass_count = sum(1 for r in results if r["status"] == "PASS")
+    
+    # Summary banner
+    if error_count == 0:
+        st.success(f"✅ **ALL CHECKS PASSED!** | Errors: 0 | Warnings: {warning_count} | Passed: {pass_count} | Time: {elapsed:.1f}s")
+        st.balloons()
     else:
-        all_passes.append(("FILE", size_msg))
-
-    # Load Excel
-    progress.progress(15, text="Loading Excel file...")
-    try:
-        xls = pd.ExcelFile(BytesIO(file_bytes))
-    except Exception as ex:
-        st.error(f"❌ Cannot read file: {str(ex)}")
-        st.stop()
-
-    # CHECK 2: Sheet Structure
-    progress.progress(25, text="Checking sheet structure...")
-    sheet_errors, sheet_warnings = check_sheets(xls)
-    for err in sheet_errors:
-        all_errors.append(("SHEETS", err))
-    for warn in sheet_warnings:
-        all_warnings.append(("SHEETS", warn))
-    if not sheet_errors and not sheet_warnings:
-        all_passes.append(("SHEETS", f"All 20 required sheets present ({len(xls.sheet_names)} total)"))
-
-    # CHECK 3: Get commands from source sheets
-    progress.progress(35, text="Reading commands from source sheets...")
-    commands = get_commands_from_source(xls)
-    if commands:
-        all_passes.append(("COMMANDS", f"Found {len(commands)} unique command(s): {', '.join(sorted(commands))}"))
-
-    # CHECK 4+: Per-sheet validation
-    total_sheets = len(REQUIRED_SHEETS)
-    for idx, sheet_name in enumerate(REQUIRED_SHEETS):
-        pct = 35 + int((idx / total_sheets) * 60)
-        progress.progress(pct, text=f"Validating: {sheet_name}...")
-
-        sheet_errors, sheet_warnings, sheet_passes = validate_sheet(xls, sheet_name, commands)
-
-        for err in sheet_errors:
-            all_errors.append((sheet_name, err))
-        for warn in sheet_warnings:
-            all_warnings.append((sheet_name, warn))
-        for pas in sheet_passes:
-            all_passes.append((sheet_name, pas))
-
-    progress.progress(100, text="✅ Validation complete!")
-
-    # DISPLAY RESULTS
-    st.markdown("---")
-
+        st.error(f"❌ **VALIDATION FAILED** | Errors: {error_count} | Warnings: {warning_count} | Passed: {pass_count} | Time: {elapsed:.1f}s")
+    
+    # Metrics row
     col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        if len(all_errors) == 0:
-            st.metric("Result", "✅ PASSED", delta="Ready for upload")
-        else:
-            st.metric("Result", "❌ FAILED", delta=f"{len(all_errors)} error(s)")
-    with col2:
-        st.metric("Errors", len(all_errors))
-    with col3:
-        st.metric("Warnings", len(all_warnings))
-    with col4:
-        st.metric("Checks Passed", len(all_passes))
-
+    col1.metric("❌ Errors", error_count)
+    col2.metric("⚠️ Warnings", warning_count)
+    col3.metric("✅ Passed", pass_count)
+    col4.metric("⏱️ Time", f"{elapsed:.1f}s")
+    
     st.markdown("---")
-
-    if len(all_errors) == 0:
-        st.success("## 🎉 ALL CHECKS PASSED!\nYour file is ready for WorkDocs upload.")
+    
+    # Detailed results
+    st.subheader("📋 Detailed Results")
+    
+    # Filter options
+    filter_option = st.radio(
+        "Show:",
+        ["All", "Errors Only", "Warnings Only", "Passed Only"],
+        horizontal=True
+    )
+    
+    # Filter results
+    if filter_option == "Errors Only":
+        display_results = [r for r in results if r["status"] == "ERROR"]
+    elif filter_option == "Warnings Only":
+        display_results = [r for r in results if r["status"] == "WARNING"]
+    elif filter_option == "Passed Only":
+        display_results = [r for r in results if r["status"] == "PASS"]
     else:
-        st.error(
-            f"## 🚫 VALIDATION FAILED\n"
-            f"{len(all_errors)} error(s) found. Fix and re-upload."
-        )
-
-    if all_errors:
-        st.markdown("### ❌ Errors (Must Fix)")
-        for idx, (sheet, err) in enumerate(all_errors, 1):
-            st.markdown(f"**{idx}. [{sheet}]** {err}")
-
-    if all_warnings:
-        st.markdown("### ⚠️ Warnings (Review Recommended)")
-        for idx, (sheet, warn) in enumerate(all_warnings, 1):
-            st.markdown(f"{idx}. **[{sheet}]** {warn}")
-
-    with st.expander(f"✅ Passed Checks ({len(all_passes)})", expanded=False):
-        for idx, (sheet, pas) in enumerate(all_passes, 1):
-            st.markdown(f"{idx}. **[{sheet}]** {pas}")
-
-    with st.expander("📄 File Information"):
-        st.text(f"Filename: {uploaded_file.name}")
-        st.text(f"Size: {len(file_bytes) / 1024:.1f} KB")
-        st.text(f"Sheets found: {len(xls.sheet_names)}")
-        st.text(f"Sheets in file: {', '.join(xls.sheet_names)}")
-        st.text(f"Commands in source: {', '.join(sorted(commands)) if commands else 'None'}")
-        st.text(f"Validated at: {datetime.now().strftime('%d-%b-%Y %H:%M:%S')}")
-
+        display_results = results
+    
+    # Display results
+    for r in display_results:
+        status = r["status"]
+        sheet = r["sheet"]
+        check = r["check"]
+        details = r["details"]
+        
+        if status == "ERROR":
+            st.markdown(f"🔴 **ERROR** | `{sheet}` | **{check}** | {details}")
+        elif status == "WARNING":
+            st.markdown(f"🟡 **WARNING** | `{sheet}` | **{check}** | {details}")
+        else:
+            st.markdown(f"🟢 **PASS** | `{sheet}` | **{check}** | {details}")
+    
+    # Results table
     st.markdown("---")
-    report_text = generate_report(
-        uploaded_file.name, all_errors, all_warnings, all_passes
-    )
-    st.download_button(
-        label="📥 Download Validation Report",
-        data=report_text,
-        file_name=f"validation_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-        mime="text/plain"
-    )
+    st.subheader("📊 Results Table")
+    
+    df_results = pd.DataFrame(results)
+    
+    # Color the status column
+    def color_status(val):
+        if val == "ERROR":
+            return "background-color: #FFE6E6; color: #CC0000; font-weight: bold"
+        elif val == "WARNING":
+            return "background-color: #FFF5DC; color: #B46400; font-weight: bold"
+        else:
+            return "background-color: #DCFFDC; color: #008200; font-weight: bold"
+    
+    styled_df = df_results.style.applymap(color_status, subset=["status"])
+    st.dataframe(styled_df, use_container_width=True, hide_index=True)
+    
+    # File info
+    st.markdown("---")
+    st.caption(f"📁 File: {uploaded_file.name} | Validated: {datetime.now().strftime('%d-%b-%Y %H:%M:%S')} | LMAQ Sanity Checker v2.5")
 
 else:
-    st.info("👆 Upload your Excel file above to start validation.")
-
-    st.markdown("### 🚀 Quick Start")
-    st.markdown("""
-    1. Click **Browse files** above
-    2. Select your CC_AMT_PIPELINE Excel file
-    3. Results appear instantly!
-    """)
-
-    st.markdown("### 📝 What's New in v2.1")
-    st.markdown("""
-    - **20 sheets**: AID (source), MOVE_AID & CREATE_LG (command)
-    - **Mandatory columns**: F,G,H,I checked in all 4 source sheets
-    - **Audit Date**: Strict MM/DD/YYYY format
-    - **Updated usecases**: 10 approved values
-    - **Duplicate detection**: Address + ID combination per sheet
-    - **Downloadable report**: Export results as text file
-    """)
+    # Instructions when no file uploaded
+    st.markdown("---")
+    st.subheader("📝 Validation Checks Performed")
+    
+    checks_info = """
+    | # | Check | Description |
+    |---|-------|-------------|
+    | 1 | File Size | Must be < 1 MB |
+    | 2 | Sheet Structure | All 20 required sheets present, flags extra |
+    | 3 | Mandatory Columns | Usecase, Auditor, Audit Date, INPUT BPID filled |
+    | 4 | Blank Rows | No blank rows (excl. Reviewer cols & COMMENTS) |
+    | 5 | Usecase | Must be from 10 approved values |
+    | 6 | Auditor | Must be alpha only (a-z alias) |
+    | 7 | Audit Date | Must be M/DD/YYYY or MM/DD/YYYY format |
+    | 8 | Duplicates | Address + ID combination must be unique |
+    | 9 | Drag-Down | Flags columns with values incrementing by +1 |
+    | 10 | Command Sheets | If command used, command sheet must have data |
+    """
+    st.markdown(checks_info)
+    
+    st.info("💡 Checks 3-9 run on ALL 4 source sheets: CAMPUS, BUILDING, UNIT, AID")
+    
+    st.markdown("---")
+    st.caption("LMAQ Sanity Checker v2.5 | Last Mile Analytics & Quality | Your file is NEVER modified")
 
