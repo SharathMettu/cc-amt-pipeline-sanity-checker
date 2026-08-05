@@ -23,11 +23,24 @@ st.set_page_config(
 )
 
 # ============================================================
-# BACKGROUND WATERMARK - Amazon Logo + LMAQ (behind content)
+# CUSTOM CSS - Watermark + Hide Manage App button
 # ============================================================
 st.markdown("""
 <style>
-/* Watermark sits behind all content */
+/* Hide Streamlit's "Manage app" button (bottom right) */
+.stDeployButton,
+[data-testid="manage-app-button"],
+.viewerBadge_container__r5tak,
+footer,
+#MainMenu {
+    display: none !important;
+    visibility: hidden !important;
+}
+
+/* Also hide the default Streamlit footer */
+footer {visibility: hidden;}
+
+/* Background watermark - Amazon logo + LMAQ */
 .watermark {
     position: fixed;
     top: 50%;
@@ -416,7 +429,7 @@ with st.sidebar:
     st.markdown("""
     <div style="text-align:center; padding:10px; background:#232F3E; border-radius:8px; margin-bottom:16px;">
         <div style="color:#FF9900; font-size:28px; font-weight:900; letter-spacing:4px;">LMAQ</div>
-        <div style="color:#ADB5BD; font-size:11px;">Location Management & Audit Quality</div>
+        <div style="color:#ADB5BD; font-size:11px;">Last Mile Analytics & Quality</div>
     </div>
     """, unsafe_allow_html=True)
 
