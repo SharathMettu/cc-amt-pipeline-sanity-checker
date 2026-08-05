@@ -12,6 +12,7 @@ import pandas as pd
 import re
 from datetime import datetime
 from io import BytesIO
+import streamlit.components.v1 as components
 
 # ============================================================
 # PAGE CONFIG
@@ -23,42 +24,32 @@ st.set_page_config(
 )
 
 # ============================================================
-# CUSTOM CSS - Hide all Streamlit default buttons + Watermark
+# HIDE ALL STREAMLIT DEFAULT UI ELEMENTS
 # ============================================================
-st.markdown("""
+hide_streamlit_style = """
 <style>
-/* Hide hamburger menu (top right 3 lines) */
-#MainMenu {
-    visibility: hidden !important;
-    display: none !important;
-}
+/* Hide hamburger menu */
+#MainMenu {visibility: hidden !important; display: none !important;}
 
-/* Hide "Manage app" / Deploy button */
-.stDeployButton,
-[data-testid="manage-app-button"] {
-    display: none !important;
-    visibility: hidden !important;
-}
+/* Hide footer */
+footer {visibility: hidden !important; display: none !important;}
 
-/* Hide footer ("Made with Streamlit") */
-footer {
-    visibility: hidden !important;
-    display: none !important;
-}
+/* Hide header/toolbar completely */
+header {visibility: hidden !important; display: none !important;}
+[data-testid="stHeader"] {display: none !important;}
+[data-testid="stToolbar"] {display: none !important;}
 
-/* Hide the header toolbar (source code viewer, record, etc.) */
-[data-testid="stToolbar"] {
-    display: none !important;
-    visibility: hidden !important;
-}
+/* Hide deploy/manage button - multiple selectors for different versions */
+.stDeployButton {display: none !important;}
+[data-testid="manage-app-button"] {display: none !important;}
+.viewerBadge_container__r5tak {display: none !important;}
+[data-testid="stStatusWidget"] {display: none !important;}
+.stAppDeployButton {display: none !important;}
 
-/* Hide "View source" and other header action buttons */
-.stActionButton,
-[data-testid="stHeader"] button,
-header [data-testid="stToolbar"] {
-    display: none !important;
-    visibility: hidden !important;
-}
+/* Nuclear option - hide anything fixed at bottom-right */
+div[class*="StatusWidget"] {display: none !important;}
+button[kind="manage"] {display: none !important;}
+div[data-testid="manage-app-button"] {display: none !important;}
 
 /* Background watermark - Amazon logo + LMAQ */
 .watermark {
@@ -90,7 +81,54 @@ header [data-testid="stToolbar"] {
     <img src="https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg" alt="">
     <div class="lmaq-text">LMAQ</div>
 </div>
-""", unsafe_allow_html=True)
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+# JavaScript to remove "Manage app" button that loads dynamically
+components.html("""
+<script>
+    // Repeatedly check and remove the manage app button
+    function hideManageButton() {
+        // Target all possible manage app elements
+        const selectors = [
+            '[data-testid="manage-app-button"]',
+            '.stDeployButton',
+            'button[kind="manage"]',
+            '.stAppDeployButton'
+        ];
+        selectors.forEach(sel => {
+            document.querySelectorAll(sel).forEach(el => {
+                el.style.display = 'none';
+                el.remove();
+            });
+        });
+
+        // Also check parent document (iframe escape)
+        try {
+            const parentDoc = window.parent.document;
+            selectors.forEach(sel => {
+                parentDoc.querySelectorAll(sel).forEach(el => {
+                    el.style.display = 'none';
+                    el.remove();
+                });
+            });
+            // Hide header in parent
+            const header = parentDoc.querySelector('header');
+            if (header) header.style.display = 'none';
+            const toolbar = parentDoc.querySelector('[data-testid="stToolbar"]');
+            if (toolbar) toolbar.style.display = 'none';
+            // Hide status widget (manage app lives here)
+            parentDoc.querySelectorAll('[data-testid="stStatusWidget"]').forEach(el => {
+                el.style.display = 'none';
+            });
+        } catch(e) {}
+    }
+
+    // Run immediately and keep checking every 500ms
+    hideManageButton();
+    setInterval(hideManageButton, 500);
+</script>
+""", height=0, width=0)
 
 # ============================================================
 # TEMPLATE DEFINITION (v2.1 - 20 sheets)
