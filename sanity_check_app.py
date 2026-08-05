@@ -23,22 +23,42 @@ st.set_page_config(
 )
 
 # ============================================================
-# CUSTOM CSS - Watermark + Hide Manage App button
+# CUSTOM CSS - Hide all Streamlit default buttons + Watermark
 # ============================================================
 st.markdown("""
 <style>
-/* Hide Streamlit's "Manage app" button (bottom right) */
-.stDeployButton,
-[data-testid="manage-app-button"],
-.viewerBadge_container__r5tak,
-footer,
+/* Hide hamburger menu (top right 3 lines) */
 #MainMenu {
+    visibility: hidden !important;
+    display: none !important;
+}
+
+/* Hide "Manage app" / Deploy button */
+.stDeployButton,
+[data-testid="manage-app-button"] {
     display: none !important;
     visibility: hidden !important;
 }
 
-/* Also hide the default Streamlit footer */
-footer {visibility: hidden;}
+/* Hide footer ("Made with Streamlit") */
+footer {
+    visibility: hidden !important;
+    display: none !important;
+}
+
+/* Hide the header toolbar (source code viewer, record, etc.) */
+[data-testid="stToolbar"] {
+    display: none !important;
+    visibility: hidden !important;
+}
+
+/* Hide "View source" and other header action buttons */
+.stActionButton,
+[data-testid="stHeader"] button,
+header [data-testid="stToolbar"] {
+    display: none !important;
+    visibility: hidden !important;
+}
 
 /* Background watermark - Amazon logo + LMAQ */
 .watermark {
