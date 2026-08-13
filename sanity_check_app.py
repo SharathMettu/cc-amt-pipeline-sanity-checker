@@ -7,10 +7,11 @@ SETUP:  pip install streamlit pandas openpyxl
 RUN:    streamlit run sanity_check_app.py
 
 v2.2 Features:
-- Drag-down detection (CAMPUS, BUILDING, UNIT, AID only)
+- N/A treated as valid value (not blank) across all sheets
+- Row-level cell validation: every cell must be filled (excl. first 5, COMMENTS, New ID)
+- Drag-down detection (CAMPUS, BUILDING, UNIT, AID only, excl. Unit Label & AID Label)
 - Extra columns detection (ALL 20 sheets)
 - CASE DETAILS: All columns mandatory except COMMENT
-- Unit Label & AID Label excluded from drag-down
 """
 
 import streamlit as st
@@ -175,6 +176,16 @@ DRAG_DOWN_EXCEPTIONS = {
     "UNIT": ["Unit Label"],
     "AID": ["AID Label"],
 }
+
+# Columns to EXCLUDE from row-level cell validation in source sheets
+# First 5 reviewer columns + COMMENTS + New ID
+ROW_VALIDATION_EXCLUDE = [
+    "Reviewer usecase", "Reviewer alias", " Date", "Reviewer Verdict  ",
+    "Reviewer comments", "COMMENTS", "New ID"
+]
+
+# N/A variants treated as valid (not blank)
+NA_VARIANTS = ["n/a", "na", "n.a.", "n.a", "N/A", "NA", "N.A.", "N.A"]
 
 # ============================================================
 # TEMPLATE COLUMNS FOR ALL 20 SHEETS
@@ -372,6 +383,31 @@ TEMPLATE_COLUMNS = {
 # VALIDATION FUNCTIONS
 # ============================================================
 
+def is_blank_value(val):
+    """Check if a value is blank. N/A variants are considered VALID (not blank)."""
+    if pd.isna(val):
+        return True
+    s = str(val).strip()
+    if s == "":
+        return True
+    # N/A is valid — NOT blank
+    if s.lower() in [v.lower() for v in NA_VARIANTS]:
+        return False
+    return False
+
+
+def is_truly_blank(val):
+    """Check if value is truly blank/empty (N/A is NOT blank)."""
+    if pd.isna(val):
+        return True
+    s = str(val).strip()
+    if s == "":
+        return True
+    if s.lower() in [v.lower() for v in NA_VARIANTS]:
+        return False
+    return False
+
+
 def check_file_size(file_bytes):
     size_mb = len(file_bytes) / (1024 * 1024)
     if size_mb > MAX_FILE_SIZE_MB:
@@ -428,6 +464,9 @@ def is_valid_date(val):
     s = str(val).strip()
     if not s:
         return False
+    # N/A is valid for date too
+    if s.lower() in [v.lower() for v in NA_VARIANTS]:
+        return True
     try:
         parts = s.split("/")
         if len(parts) == 3:
@@ -448,13 +487,9 @@ def check_mandatory_columns(df, sheet_name):
 
     for col_name in MANDATORY_SOURCE_COLUMNS:
         if col_name in df.columns:
-            blank_count = df[col_name].apply(
-                lambda v: pd.isna(v) or str(v).strip() == ""
-            ).sum()
+            blank_count = df[col_name].apply(is_truly_blank).sum()
             if blank_count > 0:
-                blank_rows = df[df[col_name].apply(
-                    lambda v: pd.isna(v) or str(v).strip() == ""
-                )].index + 2
+                blank_rows = df[df[col_name].apply(is_truly_blank)].index + 2
                 sample_rows = blank_rows.tolist()[:5]
                 errors.append(
                     f"MANDATORY column '{col_name}' has {blank_count} blank cell(s) "
@@ -475,7 +510,7 @@ def check_duplicate_rows(df, sheet_name):
 
     df_check = df[available_keys].copy()
     non_blank_mask = df_check.apply(
-        lambda row: all(not (pd.isna(v) or str(v).strip() == "") for v in row), axis=1
+        lambda row: all(not is_truly_blank(v) for v in row), axis=1
     )
     df_check = df_check[non_blank_mask]
 
@@ -505,6 +540,62 @@ def check_extra_columns(df, sheet_name):
 
 
 # ============================================================
+# ROW-LEVEL CELL VALIDATION
+# ============================================================
+
+def check_row_level_cells(df, sheet_name):
+    """
+    For each row that has data (first 4 mandatory cols filled),
+    check ALL other columns (except first 5 reviewer, COMMENTS, New ID).
+    If any cell is blank → error.
+    N/A is treated as valid.
+    """
+    if sheet_name not in SOURCE_SHEETS:
+        return []
+
+    errors = []
+
+    # Columns to check = all columns EXCEPT excluded ones
+    cols_to_check = [col for col in df.columns if col not in ROW_VALIDATION_EXCLUDE]
+
+    if not cols_to_check:
+        return errors
+
+    # Find rows that have data (at least one of first 4 mandatory cols is filled)
+    mandatory_present = [c for c in MANDATORY_SOURCE_COLUMNS if c in df.columns]
+    if not mandatory_present:
+        return errors
+
+    # A row "has data" if ANY of the first 4 mandatory columns is filled
+    has_data_mask = df[mandatory_present].apply(
+        lambda row: any(not is_truly_blank(v) for v in row), axis=1
+    )
+
+    # Track blank cells: {column_name: [row_numbers]}
+    blank_cells = {}
+
+    for idx in df[has_data_mask].index:
+        for col in cols_to_check:
+            if col in df.columns:
+                val = df.at[idx, col]
+                if is_truly_blank(val):
+                    if col not in blank_cells:
+                        blank_cells[col] = []
+                    blank_cells[col].append(idx + 2)  # Excel row number
+
+    # Generate errors
+    for col, rows in blank_cells.items():
+        sample_rows = rows[:5]
+        errors.append(
+            f"No value present in column '{col}' at Excel row(s): "
+            f"{sample_rows}{'...' if len(rows) > 5 else ''} "
+            f"({len(rows)} cell(s) blank)"
+        )
+
+    return errors
+
+
+# ============================================================
 # DRAG-DOWN DETECTION
 # ============================================================
 
@@ -524,15 +615,11 @@ def check_drag_down(df, sheet_name):
     Detect drag-down/fill-down errors where values increment by +1.
     Only applies to CAMPUS, BUILDING, UNIT, AID sheets.
     Skips Reviewer, Comment, Unit Label, and AID Label columns.
-    Returns list of flagged column names.
     """
-    # Only run on source sheets
     if sheet_name not in SOURCE_SHEETS:
         return []
 
     skip = [c.strip() for c in REVIEWER_COLUMNS + COMMENT_COLUMNS]
-
-    # Add sheet-specific exceptions (Unit Label, AID Label)
     sheet_exceptions = DRAG_DOWN_EXCEPTIONS.get(sheet_name, [])
 
     check_columns = [col for col in df.columns
@@ -543,7 +630,6 @@ def check_drag_down(df, sheet_name):
     for col in check_columns:
         values = df[col].dropna().reset_index(drop=True)
 
-        # Need at least 4 values to detect pattern (3 consecutive increments)
         if len(values) < 4:
             continue
 
@@ -559,14 +645,12 @@ def check_drag_down(df, sheet_name):
 
             is_increment = False
 
-            # Case 1: Both are pure numbers
             try:
                 curr_num = float(curr_val)
                 prev_num = float(prev_val)
                 if curr_num - prev_num == 1:
                     is_increment = True
             except (ValueError, TypeError):
-                # Case 2: Text ending with numbers (e.g., BPID_001, BPID_002)
                 curr_suffix = get_numeric_suffix(curr_val)
                 prev_suffix = get_numeric_suffix(prev_val)
 
@@ -597,7 +681,7 @@ def check_drag_down(df, sheet_name):
 # ============================================================
 
 def validate_case_details(xls):
-    """Validate CASE DETAILS sheet - all columns mandatory except COMMENT."""
+    """Validate CASE DETAILS sheet - all columns mandatory except COMMENT. N/A is valid."""
     errors = []
     warnings = []
     passes = []
@@ -621,16 +705,14 @@ def validate_case_details(xls):
     else:
         passes.append("Column headers match template")
 
-    # Check mandatory columns (all except COMMENT)
+    # Check mandatory columns (all except COMMENT) — N/A is valid
     mandatory_cols = [c for c in TEMPLATE_COLUMNS["CASE DETAILS"]
                       if c not in CASE_DETAILS_OPTIONAL]
 
     blank_cols = []
     for col in mandatory_cols:
         if col in df.columns:
-            blank_count = df[col].apply(
-                lambda v: pd.isna(v) or str(v).strip() == ""
-            ).sum()
+            blank_count = df[col].apply(is_truly_blank).sum()
             if blank_count > 0:
                 blank_cols.append(f"'{col}' ({blank_count} blank)")
 
@@ -640,7 +722,7 @@ def validate_case_details(xls):
             f"{'...' if len(blank_cols) > 5 else ''}"
         )
     else:
-        passes.append("All mandatory columns filled (COMMENT is optional)")
+        passes.append("All mandatory columns filled (COMMENT is optional, N/A is valid)")
 
     return errors, warnings, passes
 
@@ -704,6 +786,8 @@ def validate_sheet(xls, sheet_name, commands):
         if "Usecase" in df.columns:
             usecase_vals = df["Usecase"].dropna().astype(str).str.strip()
             usecase_vals = usecase_vals[usecase_vals != ""]
+            # Filter out N/A values from usecase check
+            usecase_vals = usecase_vals[~usecase_vals.str.lower().isin([v.lower() for v in NA_VARIANTS])]
             if len(usecase_vals) > 0:
                 invalid = usecase_vals[~usecase_vals.isin(VALID_USECASES)]
                 if len(invalid) > 0:
@@ -720,6 +804,8 @@ def validate_sheet(xls, sheet_name, commands):
         if "Auditor" in df.columns:
             auditor_vals = df["Auditor"].dropna().astype(str).str.strip()
             auditor_vals = auditor_vals[auditor_vals != ""]
+            # Filter out N/A values from auditor check
+            auditor_vals = auditor_vals[~auditor_vals.str.lower().isin([v.lower() for v in NA_VARIANTS])]
             if len(auditor_vals) > 0:
                 invalid_auditors = auditor_vals[~auditor_vals.apply(is_alpha_only)]
                 if len(invalid_auditors) > 0:
@@ -762,7 +848,7 @@ def validate_sheet(xls, sheet_name, commands):
     if check_cols:
         df_check = df[check_cols]
         blank_mask = df_check.apply(
-            lambda row: all(pd.isna(v) or str(v).strip() == "" for v in row), axis=1
+            lambda row: all(is_truly_blank(v) for v in row), axis=1
         )
         blank_count = blank_mask.sum()
         if blank_count > 0:
@@ -773,6 +859,15 @@ def validate_sheet(xls, sheet_name, commands):
             )
         else:
             passes.append("No blank rows")
+
+    # --- Row-level cell validation (every cell must be filled) ---
+    if sheet_name in SOURCE_SHEETS:
+        cell_errors = check_row_level_cells(df, sheet_name)
+        if cell_errors:
+            for err in cell_errors:
+                errors.append(err)
+        else:
+            passes.append("All cells filled in data rows (excl. Reviewer/COMMENTS/New ID)")
 
     # --- Duplicate row check (Address + ID) ---
     if sheet_name in DUPLICATE_KEY_COLUMNS:
@@ -866,13 +961,15 @@ with st.sidebar:
     3. **Extra columns** flagged in ALL sheets (only template headers allowed)
     4. **CASE DETAILS** all columns mandatory (except COMMENT)
     5. **Mandatory columns** (F,G,H,I) in source sheets cannot be blank
-    6. **No blank rows** (excl. Comments & Reviewer cols)
-    7. **Usecase** must be from approved list (case-sensitive)
-    8. **Auditor** must be alphabetical only (alias)
-    9. **Audit Date** mandatory, **M/DD/YYYY** or **MM/DD/YYYY** format
-    10. **Command sheets** validated only if command in source
-    11. **Duplicate rows** flagged (Address + ID combination)
-    12. **Drag-down** detection in source sheets (excl. Unit Label & AID Label)
+    6. **Row-level validation**: Every cell must be filled (excl. first 5, COMMENTS, New ID)
+    7. **No blank rows** (excl. Comments & Reviewer cols)
+    8. **Usecase** must be from approved list (case-sensitive)
+    9. **Auditor** must be alphabetical only (alias)
+    10. **Audit Date** mandatory, **M/DD/YYYY** or **MM/DD/YYYY** format
+    11. **Command sheets** validated only if command in source
+    12. **Duplicate rows** flagged (Address + ID combination)
+    13. **Drag-down** detection in source sheets (excl. Unit Label & AID Label)
+    14. **N/A** is treated as valid value everywhere
     """)
 
     st.markdown("---")
@@ -1045,10 +1142,11 @@ else:
 
     st.markdown("### 📝 What's New in v2.2")
     st.markdown("""
-    - **Drag-down detection**: Flags columns with +1 increment in source sheets (excl. Unit Label & AID Label)
+    - **N/A is valid**: N/A, n/a, NA treated as filled value (not blank) in ALL sheets
+    - **Row-level cell check**: Every cell must have a value (excl. first 5 reviewer cols, COMMENTS, New ID)
+    - **Drag-down detection**: Flags +1 increment in source sheets (excl. Unit Label & AID Label)
     - **Extra columns detection**: Flags columns not in template (ALL 20 sheets)
     - **CASE DETAILS validation**: All columns mandatory except COMMENT
     - **Date format**: Accepts M/DD/YYYY or MM/DD/YYYY
-    - All previous checks from v2.1 intact
     """)
 
