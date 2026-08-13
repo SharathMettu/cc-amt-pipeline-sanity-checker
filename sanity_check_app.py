@@ -168,17 +168,14 @@ DUPLICATE_KEY_COLUMNS = {
 
 MAX_FILE_SIZE_MB = 1
 
-# CASE DETAILS: All columns mandatory EXCEPT "COMMENT"
 CASE_DETAILS_OPTIONAL = ["COMMENT"]
 
-# Drag-down exceptions: columns that can naturally increment
 DRAG_DOWN_EXCEPTIONS = {
     "UNIT": ["Unit Label"],
     "AID": ["AID Label"],
 }
 
 # Columns to EXCLUDE from row-level cell validation in source sheets
-# First 5 reviewer columns + COMMENTS + New ID
 ROW_VALIDATION_EXCLUDE = [
     "Reviewer usecase", "Reviewer alias", " Date", "Reviewer Verdict  ",
     "Reviewer comments", "COMMENTS", "New ID"
@@ -383,26 +380,18 @@ TEMPLATE_COLUMNS = {
 # VALIDATION FUNCTIONS
 # ============================================================
 
-def is_blank_value(val):
-    """Check if a value is blank. N/A variants are considered VALID (not blank)."""
+def is_truly_blank(val):
+    """
+    Check if value is truly blank/empty.
+    N/A variants are considered VALID (NOT blank).
+    Returns True only if cell is empty/NaN/whitespace.
+    """
     if pd.isna(val):
         return True
     s = str(val).strip()
     if s == "":
         return True
     # N/A is valid — NOT blank
-    if s.lower() in [v.lower() for v in NA_VARIANTS]:
-        return False
-    return False
-
-
-def is_truly_blank(val):
-    """Check if value is truly blank/empty (N/A is NOT blank)."""
-    if pd.isna(val):
-        return True
-    s = str(val).strip()
-    if s == "":
-        return True
     if s.lower() in [v.lower() for v in NA_VARIANTS]:
         return False
     return False
@@ -435,7 +424,7 @@ def get_commands_from_source(xls):
     commands = set()
     for sheet in SOURCE_SHEETS:
         if sheet in xls.sheet_names:
-            df = pd.read_excel(xls, sheet_name=sheet, header=0)
+            df = pd.read_excel(xls, sheet_name=sheet, header=0, keep_default_na=False)
             if "COMMAND" in df.columns:
                 cmds = df["COMMAND"].dropna().astype(str).str.strip().str.upper()
                 commands.update(cmds[cmds != ""])
@@ -459,13 +448,13 @@ def is_alpha_only(s):
 def is_valid_date(val):
     if pd.isna(val):
         return False
-    if isinstance(val, (pd.Timestamp, datetime)):
-        return True
     s = str(val).strip()
     if not s:
         return False
     # N/A is valid for date too
     if s.lower() in [v.lower() for v in NA_VARIANTS]:
+        return True
+    if isinstance(val, (pd.Timestamp, datetime)):
         return True
     try:
         parts = s.split("/")
@@ -547,8 +536,7 @@ def check_row_level_cells(df, sheet_name):
     """
     For each row that has data (first 4 mandatory cols filled),
     check ALL other columns (except first 5 reviewer, COMMENTS, New ID).
-    If any cell is blank → error.
-    N/A is treated as valid.
+    If any cell is blank → error. N/A is treated as valid.
     """
     if sheet_name not in SOURCE_SHEETS:
         return []
@@ -566,7 +554,6 @@ def check_row_level_cells(df, sheet_name):
     if not mandatory_present:
         return errors
 
-    # A row "has data" if ANY of the first 4 mandatory columns is filled
     has_data_mask = df[mandatory_present].apply(
         lambda row: any(not is_truly_blank(v) for v in row), axis=1
     )
@@ -581,7 +568,7 @@ def check_row_level_cells(df, sheet_name):
                 if is_truly_blank(val):
                     if col not in blank_cells:
                         blank_cells[col] = []
-                    blank_cells[col].append(idx + 2)  # Excel row number
+                    blank_cells[col].append(idx + 2)
 
     # Generate errors
     for col, rows in blank_cells.items():
@@ -689,7 +676,7 @@ def validate_case_details(xls):
     if "CASE DETAILS" not in xls.sheet_names:
         return errors, warnings, passes
 
-    df = pd.read_excel(xls, sheet_name="CASE DETAILS", header=0)
+    df = pd.read_excel(xls, sheet_name="CASE DETAILS", header=0, keep_default_na=False)
 
     if len(df) == 0:
         errors.append("CASE DETAILS sheet is EMPTY (must have at least 1 row)")
@@ -739,11 +726,10 @@ def validate_sheet(xls, sheet_name, commands):
     if sheet_name not in xls.sheet_names:
         return errors, warnings, passes
 
-    # Skip CASE DETAILS here (handled separately)
     if sheet_name == "CASE DETAILS":
         return errors, warnings, passes
 
-    df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
+    df = pd.read_excel(xls, sheet_name=sheet_name, header=0, keep_default_na=False)
 
     if sheet_name in COMMAND_SHEETS:
         sheet_upper = sheet_name.upper()
@@ -821,18 +807,16 @@ def validate_sheet(xls, sheet_name, commands):
     if sheet_name in SOURCE_SHEETS or sheet_name in COMMAND_SHEETS:
         if "Audit Date" in df.columns:
             date_col = df["Audit Date"]
-            non_blank_dates = date_col.dropna()
-            non_blank_dates = non_blank_dates[non_blank_dates.astype(str).str.strip() != ""]
+            non_blank_dates = date_col[date_col.apply(lambda v: not is_truly_blank(v))]
 
             if len(non_blank_dates) > 0:
                 invalid_dates = 0
                 invalid_rows = []
-                for idx, val in date_col.items():
-                    if not (pd.isna(val) or str(val).strip() == ""):
-                        if not is_valid_date(val):
-                            invalid_dates += 1
-                            if len(invalid_rows) < 5:
-                                invalid_rows.append(idx + 2)
+                for idx, val in non_blank_dates.items():
+                    if not is_valid_date(val):
+                        invalid_dates += 1
+                        if len(invalid_rows) < 5:
+                            invalid_rows.append(idx + 2)
 
                 if invalid_dates > 0:
                     errors.append(
