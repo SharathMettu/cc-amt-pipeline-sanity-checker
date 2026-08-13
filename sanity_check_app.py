@@ -7,7 +7,7 @@ SETUP:  pip install streamlit pandas openpyxl
 RUN:    streamlit run sanity_check_app.py
 
 v2.2 Features:
-- N/A treated as valid value (not blank) across all sheets
+- N/A treated as valid value (not blank) across all sheets (keep_default_na=False)
 - Row-level cell validation: every cell must be filled (excl. first 5, COMMENTS, New ID)
 - Drag-down detection (CAMPUS, BUILDING, UNIT, AID only, excl. Unit Label & AID Label)
 - Extra columns detection (ALL 20 sheets)
