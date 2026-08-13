@@ -6,10 +6,11 @@ CC_AMT_PIPELINE Sanity Check Web App (v2.2)
 SETUP:  pip install streamlit pandas openpyxl
 RUN:    streamlit run sanity_check_app.py
 
-NEW IN v2.2:
-- Drag-down detection: Flags columns with values incrementing by +1
-- Extra columns detection: Flags columns not in the template (ALL 20 sheets)
-- CASE DETAILS validation: All columns mandatory except COMMENT
+v2.2 Features:
+- Drag-down detection (CAMPUS, BUILDING, UNIT, AID only)
+- Extra columns detection (ALL 20 sheets)
+- CASE DETAILS: All columns mandatory except COMMENT
+- Unit Label & AID Label excluded from drag-down
 """
 
 import streamlit as st
@@ -33,30 +34,20 @@ st.set_page_config(
 # ============================================================
 hide_streamlit_style = """
 <style>
-/* Hide hamburger menu */
 #MainMenu {visibility: hidden !important; display: none !important;}
-
-/* Hide footer */
 footer {visibility: hidden !important; display: none !important;}
-
-/* Hide header/toolbar completely */
 header {visibility: hidden !important; display: none !important;}
 [data-testid="stHeader"] {display: none !important;}
 [data-testid="stToolbar"] {display: none !important;}
-
-/* Hide deploy/manage button - multiple selectors for different versions */
 .stDeployButton {display: none !important;}
 [data-testid="manage-app-button"] {display: none !important;}
 .viewerBadge_container__r5tak {display: none !important;}
 [data-testid="stStatusWidget"] {display: none !important;}
 .stAppDeployButton {display: none !important;}
-
-/* Nuclear option - hide anything fixed at bottom-right */
 div[class*="StatusWidget"] {display: none !important;}
 button[kind="manage"] {display: none !important;}
 div[data-testid="manage-app-button"] {display: none !important;}
 
-/* Background watermark - Amazon logo + LMAQ */
 .watermark {
     position: fixed;
     top: 50%;
@@ -89,7 +80,6 @@ div[data-testid="manage-app-button"] {display: none !important;}
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
-# JavaScript to remove "Manage app" button that loads dynamically
 components.html("""
 <script>
     function hideManageButton() {
@@ -128,7 +118,7 @@ components.html("""
 """, height=0, width=0)
 
 # ============================================================
-# TEMPLATE DEFINITION (v2.2 - 20 sheets)
+# TEMPLATE DEFINITION
 # ============================================================
 REQUIRED_SHEETS = [
     "CASE DETAILS", "CAMPUS", "BUILDING", "UNIT", "AID",
@@ -176,6 +166,15 @@ DUPLICATE_KEY_COLUMNS = {
 }
 
 MAX_FILE_SIZE_MB = 1
+
+# CASE DETAILS: All columns mandatory EXCEPT "COMMENT"
+CASE_DETAILS_OPTIONAL = ["COMMENT"]
+
+# Drag-down exceptions: columns that can naturally increment
+DRAG_DOWN_EXCEPTIONS = {
+    "UNIT": ["Unit Label"],
+    "AID": ["AID Label"],
+}
 
 # ============================================================
 # TEMPLATE COLUMNS FOR ALL 20 SHEETS
@@ -369,9 +368,6 @@ TEMPLATE_COLUMNS = {
     ]
 }
 
-# CASE DETAILS: All columns mandatory EXCEPT "COMMENT" (col Y)
-CASE_DETAILS_OPTIONAL = ["COMMENT"]
-
 # ============================================================
 # VALIDATION FUNCTIONS
 # ============================================================
@@ -498,24 +494,18 @@ def check_duplicate_rows(df, sheet_name):
     return None
 
 
-# ============================================================
-# NEW: EXTRA COLUMNS DETECTION
-# ============================================================
-
 def check_extra_columns(df, sheet_name):
     """Check if sheet has columns not present in the template."""
     if sheet_name not in TEMPLATE_COLUMNS:
         return []
-    
     expected_cols = TEMPLATE_COLUMNS[sheet_name]
     actual_cols = list(df.columns)
-    
     extra_cols = [col for col in actual_cols if col not in expected_cols]
     return extra_cols
 
 
 # ============================================================
-# NEW: DRAG-DOWN DETECTION (+1 increment)
+# DRAG-DOWN DETECTION
 # ============================================================
 
 def get_numeric_suffix(val):
@@ -532,33 +522,43 @@ def get_numeric_suffix(val):
 def check_drag_down(df, sheet_name):
     """
     Detect drag-down/fill-down errors where values increment by +1.
-    Checks ALL columns except Reviewer and Comment columns.
+    Only applies to CAMPUS, BUILDING, UNIT, AID sheets.
+    Skips Reviewer, Comment, Unit Label, and AID Label columns.
     Returns list of flagged column names.
     """
+    # Only run on source sheets
+    if sheet_name not in SOURCE_SHEETS:
+        return []
+
     skip = [c.strip() for c in REVIEWER_COLUMNS + COMMENT_COLUMNS]
-    check_columns = [col for col in df.columns if col.strip() not in skip]
-    
+
+    # Add sheet-specific exceptions (Unit Label, AID Label)
+    sheet_exceptions = DRAG_DOWN_EXCEPTIONS.get(sheet_name, [])
+
+    check_columns = [col for col in df.columns
+                     if col.strip() not in skip and col not in sheet_exceptions]
+
     flagged_columns = []
-    
+
     for col in check_columns:
         values = df[col].dropna().reset_index(drop=True)
-        
+
         # Need at least 4 values to detect pattern (3 consecutive increments)
         if len(values) < 4:
             continue
-        
+
         consecutive_count = 0
-        
+
         for i in range(1, len(values)):
             curr_val = str(values.iloc[i]).strip()
             prev_val = str(values.iloc[i - 1]).strip()
-            
+
             if curr_val == "" or prev_val == "":
                 consecutive_count = 0
                 continue
-            
+
             is_increment = False
-            
+
             # Case 1: Both are pure numbers
             try:
                 curr_num = float(curr_val)
@@ -569,18 +569,18 @@ def check_drag_down(df, sheet_name):
                 # Case 2: Text ending with numbers (e.g., BPID_001, BPID_002)
                 curr_suffix = get_numeric_suffix(curr_val)
                 prev_suffix = get_numeric_suffix(prev_val)
-                
+
                 if curr_suffix and prev_suffix:
                     curr_prefix = curr_val[:-len(curr_suffix)]
                     prev_prefix = prev_val[:-len(prev_suffix)]
-                    
+
                     if curr_prefix == prev_prefix:
                         try:
                             if float(curr_suffix) - float(prev_suffix) == 1:
                                 is_increment = True
                         except (ValueError, TypeError):
                             pass
-            
+
             if is_increment:
                 consecutive_count += 1
                 if consecutive_count >= 3:
@@ -588,12 +588,12 @@ def check_drag_down(df, sheet_name):
                     break
             else:
                 consecutive_count = 0
-    
+
     return flagged_columns
 
 
 # ============================================================
-# NEW: CASE DETAILS VALIDATION
+# CASE DETAILS VALIDATION
 # ============================================================
 
 def validate_case_details(xls):
@@ -601,16 +601,16 @@ def validate_case_details(xls):
     errors = []
     warnings = []
     passes = []
-    
+
     if "CASE DETAILS" not in xls.sheet_names:
         return errors, warnings, passes
-    
+
     df = pd.read_excel(xls, sheet_name="CASE DETAILS", header=0)
-    
+
     if len(df) == 0:
         errors.append("CASE DETAILS sheet is EMPTY (must have at least 1 row)")
         return errors, warnings, passes
-    
+
     # Check extra columns
     extra_cols = check_extra_columns(df, "CASE DETAILS")
     if extra_cols:
@@ -620,11 +620,11 @@ def validate_case_details(xls):
         )
     else:
         passes.append("Column headers match template")
-    
+
     # Check mandatory columns (all except COMMENT)
-    mandatory_cols = [c for c in TEMPLATE_COLUMNS["CASE DETAILS"] 
+    mandatory_cols = [c for c in TEMPLATE_COLUMNS["CASE DETAILS"]
                       if c not in CASE_DETAILS_OPTIONAL]
-    
+
     blank_cols = []
     for col in mandatory_cols:
         if col in df.columns:
@@ -633,7 +633,7 @@ def validate_case_details(xls):
             ).sum()
             if blank_count > 0:
                 blank_cols.append(f"'{col}' ({blank_count} blank)")
-    
+
     if blank_cols:
         errors.append(
             f"MANDATORY columns have blank cells: {'; '.join(blank_cols[:5])}"
@@ -641,17 +641,7 @@ def validate_case_details(xls):
         )
     else:
         passes.append("All mandatory columns filled (COMMENT is optional)")
-    
-    # Drag-down check on CASE DETAILS
-    drag_cols = check_drag_down(df, "CASE DETAILS")
-    if drag_cols:
-        errors.append(
-            f"DRAG-DOWN DETECTED: Values incrementing by +1 in column(s): "
-            f"{', '.join(drag_cols)} (likely fill-down error)"
-        )
-    else:
-        passes.append("No drag-down patterns detected")
-    
+
     return errors, warnings, passes
 
 
@@ -690,7 +680,7 @@ def validate_sheet(xls, sheet_name, commands):
     if len(df) == 0:
         return errors, warnings, passes
 
-    # --- CHECK: Extra Columns ---
+    # --- Extra Columns Check ---
     if sheet_name in TEMPLATE_COLUMNS:
         extra_cols = check_extra_columns(df, sheet_name)
         if extra_cols:
@@ -792,7 +782,7 @@ def validate_sheet(xls, sheet_name, commands):
         else:
             passes.append("No duplicate rows detected")
 
-    # --- CHECK: Drag-Down Detection ---
+    # --- Drag-Down Detection (only source sheets) ---
     if sheet_name in SOURCE_SHEETS:
         drag_cols = check_drag_down(df, sheet_name)
         if drag_cols:
@@ -856,7 +846,6 @@ def generate_report(filename, all_errors, all_warnings, all_passes):
 # STREAMLIT UI
 # ============================================================
 
-# Title
 st.title("🔍 CC_AMT_PIPELINE Sanity Checker")
 st.markdown("Upload your Excel file below to validate before WorkDocs upload.")
 st.markdown("---")
@@ -874,7 +863,7 @@ with st.sidebar:
     st.markdown("""
     1. **File size** < 1 MB
     2. **20 sheets** required (no missing)
-    3. **Extra columns** flagged (only template headers allowed)
+    3. **Extra columns** flagged in ALL sheets (only template headers allowed)
     4. **CASE DETAILS** all columns mandatory (except COMMENT)
     5. **Mandatory columns** (F,G,H,I) in source sheets cannot be blank
     6. **No blank rows** (excl. Comments & Reviewer cols)
@@ -883,7 +872,7 @@ with st.sidebar:
     9. **Audit Date** mandatory, **M/DD/YYYY** or **MM/DD/YYYY** format
     10. **Command sheets** validated only if command in source
     11. **Duplicate rows** flagged (Address + ID combination)
-    12. **Drag-down** detection (values +1 increment = fill error)
+    12. **Drag-down** detection in source sheets (excl. Unit Label & AID Label)
     """)
 
     st.markdown("---")
@@ -1056,7 +1045,7 @@ else:
 
     st.markdown("### 📝 What's New in v2.2")
     st.markdown("""
-    - **Drag-down detection**: Flags columns where values increment by +1 (fill-down error)
+    - **Drag-down detection**: Flags columns with +1 increment in source sheets (excl. Unit Label & AID Label)
     - **Extra columns detection**: Flags columns not in template (ALL 20 sheets)
     - **CASE DETAILS validation**: All columns mandatory except COMMENT
     - **Date format**: Accepts M/DD/YYYY or MM/DD/YYYY
