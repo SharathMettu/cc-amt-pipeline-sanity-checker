@@ -1,10 +1,15 @@
 
 #!/usr/bin/env python3
 """
-CC_AMT_PIPELINE Sanity Check Web App (v2.1)
+CC_AMT_PIPELINE Sanity Check Web App (v2.2)
 =============================================
 SETUP:  pip install streamlit pandas openpyxl
 RUN:    streamlit run sanity_check_app.py
+
+NEW IN v2.2:
+- Drag-down detection: Flags columns with values incrementing by +1
+- Extra columns detection: Flags columns not in the template (ALL 20 sheets)
+- CASE DETAILS validation: All columns mandatory except COMMENT
 """
 
 import streamlit as st
@@ -87,9 +92,7 @@ st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 # JavaScript to remove "Manage app" button that loads dynamically
 components.html("""
 <script>
-    // Repeatedly check and remove the manage app button
     function hideManageButton() {
-        // Target all possible manage app elements
         const selectors = [
             '[data-testid="manage-app-button"]',
             '.stDeployButton',
@@ -102,8 +105,6 @@ components.html("""
                 el.remove();
             });
         });
-
-        // Also check parent document (iframe escape)
         try {
             const parentDoc = window.parent.document;
             selectors.forEach(sel => {
@@ -112,26 +113,22 @@ components.html("""
                     el.remove();
                 });
             });
-            // Hide header in parent
             const header = parentDoc.querySelector('header');
             if (header) header.style.display = 'none';
             const toolbar = parentDoc.querySelector('[data-testid="stToolbar"]');
             if (toolbar) toolbar.style.display = 'none';
-            // Hide status widget (manage app lives here)
             parentDoc.querySelectorAll('[data-testid="stStatusWidget"]').forEach(el => {
                 el.style.display = 'none';
             });
         } catch(e) {}
     }
-
-    // Run immediately and keep checking every 500ms
     hideManageButton();
     setInterval(hideManageButton, 500);
 </script>
 """, height=0, width=0)
 
 # ============================================================
-# TEMPLATE DEFINITION (v2.1 - 20 sheets)
+# TEMPLATE DEFINITION (v2.2 - 20 sheets)
 # ============================================================
 REQUIRED_SHEETS = [
     "CASE DETAILS", "CAMPUS", "BUILDING", "UNIT", "AID",
@@ -179,6 +176,201 @@ DUPLICATE_KEY_COLUMNS = {
 }
 
 MAX_FILE_SIZE_MB = 1
+
+# ============================================================
+# TEMPLATE COLUMNS FOR ALL 20 SHEETS
+# ============================================================
+TEMPLATE_COLUMNS = {
+    "CASE DETAILS": [
+        "INPUT ID", "AUDIT START DATE", "AUDIT END DATE", "Campus Name",
+        "ADDRESS ", "Property Type", "Physical Building Count",
+        "SITE MAP AVAILABLE", "SITE MAP LINK", "3P LINK",
+        "NO. OF SUB CAMPUSES", "CAMPUS ID PRESENT", "TOTAL NO. OF BUILDING",
+        "NO. OF BUILDINGS CREATED", "NO. OF BUILDINGS REPARENT",
+        "UNIT-BUILDING RELATION", "UB ESTABLISHED FROM", "TOTAL NO. OF UNIT",
+        "NO. OF UNITS CREATED", "NO. OF UNITS REPARENT",
+        "CHECK FOR DUPLICATE INPUTS IN FILE", "SANITIZATION CHECK",
+        "FILE UPLOAD STATUS", "REFLECTION STATUS", "COMMENT"
+    ],
+    "CAMPUS": [
+        "Reviewer usecase", "Reviewer alias", " Date", "Reviewer Verdict  ",
+        "Reviewer comments", "Usecase", "Auditor", "Audit Date", "INPUT BPID",
+        "Campus Address", "Campus ID(SOURCE)", "COMMAND", "Error Type",
+        "TARGET CAMPUS ID", "COMMENTS", "Uploaded the command(YES/NO/)",
+        "UPLOADED THROUGH-CLI/GUI", "REFLECTING YES/NO/CLI-NO", "New ID"
+    ],
+    "BUILDING": [
+        "Reviewer usecase", "Reviewer alias", " Date", "Reviewer Verdict  ",
+        "Reviewer comments", "Usecase", "Auditor", "Audit Date", "INPUT BPID",
+        "Campus ID", "Building Unique Value", "Building Address", "BPID(SOURCE)",
+        "BPID type", "COMMAND", "Error type - Building",
+        "Target Node(If action taken is yes)", "COMMENTS",
+        "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
+        "REFLECTING YES/NO/CLI-NO", "New ID"
+    ],
+    "UNIT": [
+        "Reviewer usecase", "Reviewer alias", " Date", "Reviewer Verdict  ",
+        "Reviewer comments", "Usecase", "Auditor", "Audit Date", "INPUT BPID",
+        "Campus ID", "Building Unique Value", "BPID", "Unit Address",
+        "Unit Label", "Unit PID(SOURCE)", "COMMAND", "Error type - Unit",
+        "Target Node(If action taken is yes)",
+        "Hierarchy BPID(BPID after taking action)", "COMMENTS",
+        "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
+        "REFLECTING YES/NO/CLI-NO", "New ID", "Type"
+    ],
+    "AID": [
+        "Reviewer usecase", "Reviewer alias", " Date", "Reviewer Verdict  ",
+        "Reviewer comments", "Usecase", "Auditor", "Audit Date", "INPUT BPID",
+        "BPID", "UPID", "AID Address", "AID Label", "AID", "COMMAND",
+        "Error type - AID", "Target Node(If action taken is yes)",
+        "Hierarchy BPID(BPID after taking action)", "COMMENTS",
+        "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
+        "REFLECTING YES/NO/CLI-NO", "New ID", "Type"
+    ],
+    "CREATE_CAMPUS": [
+        "Usecase", "Auditor", "Audit Date", "INPUT BPID", "COMMAND",
+        "isDeliverable", "pid_adminlevel1(country)", "pid_adminlevel3(state)",
+        "pid_adminlevel4", "pid_adminlevel5", "pid_adminlevel6(city)",
+        "pid_adminlevel7", "pid_adminlevel8", "pid_adminlevel9",
+        "pid_adminlevel10", "pid_adminlevel11", "pid_street1", "pid_street2",
+        "pid_street3", "pid_unit1name", "pid_unit1number", "pid_unit2name",
+        "pid_unit2number", "pid_unit3name", "pid_unit3number", "pid_unit4name",
+        "pid_unit4number", "pid_unit5name", "pid_unit5number", "pid_unit6name",
+        "pid_unit6number", "pid_unit7name", "pid_unit7number", "pid_unit8name",
+        "pid_unit8number", "pid_unit9name", "pid_unit9number",
+        "pid_unit10name(Campus label)", "pid_unit10number(campus number)",
+        "pid_postalcode1", "pid_postalcode2", "pid_postalcode3", "pid_pobox",
+        "pid_addressrole", "parentPid(city node)",
+        "Uploaded the command(YES/NO)", "New ID"
+    ],
+    "MERGE_NODE": [
+        "Usecase", "Auditor", "Audit Date", "INPUT BPID", "MERGE_NODE",
+        "SOURCE NODE(CAMPUSID)", "TARGET NODE(CAMPUSID)",
+        "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
+        "REFLECTING YES/NO/CLI-NO"
+    ],
+    "CREATE_BUILDING": [
+        "Usecase", "Auditor", "Audit Date", "INPUT BPID", "Command",
+        "isDeliverable", "pid_adminlevel1(country code)",
+        "pid_adminlevel3(state)", "pid_adminlevel4", "pid_adminlevel5",
+        "pid_adminlevel6(city)", "pid_adminlevel7", "pid_adminlevel8",
+        "pid_adminlevel9", "pid_adminlevel10", "pid_adminlevel11",
+        "pid_street1(street name)", "pid_street2", "pid_street3",
+        "pid_unit1name(building name)", "pid_unit1number(bldg number)",
+        "pid_unit2name(unit abbreviation)", "pid_unit2number(unit number)",
+        "pid_unit3name", "pid_unit3number", "pid_unit4name", "pid_unit4number",
+        "pid_unit5name", "pid_unit5number", "pid_unit6name", "pid_unit6number",
+        "pid_unit7name", "pid_unit7number", "pid_unit8name", "pid_unit8number",
+        "pid_unit9name", "pid_unit9number", "pid_postalcode1(zipcode)",
+        "pid_postalcode2", "pid_postalcode3", "pid_pobox",
+        "pid_addressrole(PRIMARY)", "parentPid(CAMPUSID)",
+        "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
+        "REFLECTING YES/NO/CLI-NO", "New ID"
+    ],
+    "GROUPING": [
+        "Usecase", "Auditor", "Audit Date", "INPUT BPID", "COMMAND",
+        "isDeliverable", "pid_adminlevel1(country code)",
+        "pid_adminlevel3(state)", "pid_adminlevel4", "pid_adminlevel5",
+        "pid_adminlevel6(city)", "pid_adminlevel7", "pid_adminlevel8",
+        "pid_adminlevel9", "pid_adminlevel10", "pid_adminlevel11",
+        "pid_street1(street name)", "pid_street2", "pid_street3",
+        "pid_unit1name(building name)", "pid_unit1number(bldg number)",
+        "pid_unit2name(unit abbreviation)", "pid_unit2number(unit number)",
+        "pid_unit3name", "pid_unit3number", "pid_unit4name", "pid_unit4number",
+        "pid_unit5name", "pid_unit5number", "pid_unit6name", "pid_unit6number",
+        "pid_unit7name", "pid_unit7number", "pid_unit8name", "pid_unit8number",
+        "pid_unit9name", "pid_unit9number", "pid_postalcode1(zipcode)",
+        "pid_postalcode2", "pid_postalcode3", "pid_pobox",
+        "pid_addressrole(PRIMARY)", "parentPid(CAMPUSID)",
+        "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
+        "REFLECTING YES/NO/CLI-NO", "New ID"
+    ],
+    "MERGE_BUILDING_NODE": [
+        "Usecase", "Auditor", "Audit Date", "INPUT BPID", "COMMAND",
+        "SOURCE NODE(BPID)", "TARGET NODE(BPID)",
+        "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
+        "REFLECTING YES/NO/CLI-NO"
+    ],
+    "REPARENT_NODE": [
+        "Usecase", "Auditor", "Audit Date", "INPUT BPID", "COMMAND",
+        "SOURCE NODE(BPID)", "TARGET NODE(CAMPUSID)",
+        "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
+        "REFLECTING YES/NO/CLI-NO"
+    ],
+    "CREATE_DG": [
+        "Usecase", "Auditor", "Audit Date", "INPUT BPID", "CREATE_DG",
+        "isDeliverable", "pid_adminlevel1(country code)",
+        "pid_adminlevel3(state)", "pid_adminlevel4", "pid_adminlevel5",
+        "pid_adminlevel6(city)", "pid_adminlevel7", "pid_adminlevel8",
+        "pid_adminlevel9", "pid_adminlevel10", "pid_adminlevel11",
+        "pid_street1(street name)", "pid_street2", "pid_street3",
+        "pid_unit1name(building name)", "pid_unit1number(bldg number)",
+        "pid_unit2name(unit abbreviation)", "pid_unit2number(unit number)",
+        "pid_unit3name", "pid_unit3number", "pid_unit4name", "pid_unit4number",
+        "pid_unit5name", "pid_unit5number", "pid_unit6name", "pid_unit6number",
+        "pid_unit7name", "pid_unit7number", "pid_unit8name", "pid_unit8number",
+        "pid_unit9name", "pid_unit9number", "pid_postalcode1(zipcode)",
+        "pid_postalcode2", "pid_postalcode3", "pid_pobox",
+        "pid_addressrole(PRIMARY)", "parentPid(BPID)",
+        "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
+        "REFLECTING YES/NO/CLI-NO", "New ID"
+    ],
+    "MERGE_LG_NODE": [
+        "Usecase", "Auditor", "Audit Date", "INPUT BPID", "MERGE_LG_NODE",
+        "Source Node (LG)", "Target Node(LG/DG)",
+        "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
+        "REFLECTING YES/NO/CLI-NO"
+    ],
+    "MERGE_DG_NODE": [
+        "Usecase", "Auditor", "Audit Date", "INPUT BPID", "MERGE_DG_NODE",
+        "Source Node (DG)", "Target Node(DG)",
+        "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
+        "REFLECTING YES/NO/CLI-NO"
+    ],
+    "REPARENT_DG_NODE": [
+        "Usecase", "Auditor", "Audit Date", "INPUT BPID", "SOURCE PPID",
+        "REPARENT_DG_NODE", "Source Node (DG)", "Target Node(BPID)",
+        "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
+        "REFLECTING YES/NO/CLI-NO"
+    ],
+    "REPARENT_LG_NODE": [
+        "Usecase", "Auditor", "Audit Date", "INPUT BPID", "SOURCE PPID",
+        "REPARENT_LG_NODE", "Source Node (LG)", "Target Node(BPID)",
+        "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
+        "REFLECTING YES/NO/CLI-NO"
+    ],
+    "DEPRECATE_NODE": [
+        "Usecase", "Auditor", "Audit Date", "INPUT BPID", "DEPRECATE_NODE",
+        "SOURCE_NODE", "NODE TYPE(CAMPUSID/BPID/UPID)"
+    ],
+    "ADD_SOURCE_AND_CANONICAL_ADDRES": [
+        "Usecase", "Auditor", "Audit Date", "INPUT BPID", "COMMAND", "pid",
+        "pid_adminlevel1", "pid_adminlevel3", "pid_adminlevel4",
+        "pid_adminlevel5", "pid_adminlevel6", "pid_adminlevel7",
+        "pid_adminlevel8", "pid_adminlevel9", "pid_adminlevel10",
+        "pid_adminlevel11", "pid_street1", "pid_street2", "pid_street3",
+        "pid_unit1name", "pid_unit1number", "pid_unit2name", "pid_unit2number",
+        "pid_unit3name", "pid_unit3number", "pid_unit4name", "pid_unit4number",
+        "pid_unit5name", "pid_unit5number", "pid_unit6name", "pid_unit6number",
+        "pid_unit7name", "pid_unit7number", "pid_unit8name", "pid_unit8number",
+        "pid_unit9name", "pid_unit9number", "pid_postalcode1", "pid_postalcode2",
+        "pid_postalcode3", "pid_pobox", "pid_addressrole"
+    ],
+    "MOVE_AID": [
+        "Usecase", "Auditor", "Audit Date", "INPUT BPID", "MOVE_AID",
+        "Source Node (AID)", "Target Node(LG/DG)",
+        "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
+        "REFLECTING YES/NO/CLI-NO"
+    ],
+    "CREATE_LG": [
+        "Usecase", "Auditor", "Audit Date", "INPUT BPID", "CREATE_LG",
+        "Source Node (AID)", "Uploaded the command(YES/NO/)",
+        "UPLOADED THROUGH-CLI/GUI", "REFLECTING YES/NO/CLI-NO"
+    ]
+}
+
+# CASE DETAILS: All columns mandatory EXCEPT "COMMENT" (col Y)
+CASE_DETAILS_OPTIONAL = ["COMMENT"]
 
 # ============================================================
 # VALIDATION FUNCTIONS
@@ -244,7 +436,7 @@ def is_valid_date(val):
         parts = s.split("/")
         if len(parts) == 3:
             m_str, d_str, y_str = parts[0], parts[1], parts[2]
-            if len(m_str) == 2 and len(d_str) == 2 and len(y_str) == 4:
+            if len(m_str) in [1, 2] and len(d_str) in [1, 2] and len(y_str) == 4:
                 m, d, y = int(m_str), int(d_str), int(y_str)
                 if 1 <= m <= 12 and 1 <= d <= 31 and 2020 <= y <= 2030:
                     return True
@@ -306,12 +498,177 @@ def check_duplicate_rows(df, sheet_name):
     return None
 
 
+# ============================================================
+# NEW: EXTRA COLUMNS DETECTION
+# ============================================================
+
+def check_extra_columns(df, sheet_name):
+    """Check if sheet has columns not present in the template."""
+    if sheet_name not in TEMPLATE_COLUMNS:
+        return []
+    
+    expected_cols = TEMPLATE_COLUMNS[sheet_name]
+    actual_cols = list(df.columns)
+    
+    extra_cols = [col for col in actual_cols if col not in expected_cols]
+    return extra_cols
+
+
+# ============================================================
+# NEW: DRAG-DOWN DETECTION (+1 increment)
+# ============================================================
+
+def get_numeric_suffix(val):
+    """Extract trailing numeric characters from a string."""
+    suffix = ""
+    for ch in reversed(str(val)):
+        if ch.isdigit():
+            suffix = ch + suffix
+        else:
+            break
+    return suffix
+
+
+def check_drag_down(df, sheet_name):
+    """
+    Detect drag-down/fill-down errors where values increment by +1.
+    Checks ALL columns except Reviewer and Comment columns.
+    Returns list of flagged column names.
+    """
+    skip = [c.strip() for c in REVIEWER_COLUMNS + COMMENT_COLUMNS]
+    check_columns = [col for col in df.columns if col.strip() not in skip]
+    
+    flagged_columns = []
+    
+    for col in check_columns:
+        values = df[col].dropna().reset_index(drop=True)
+        
+        # Need at least 4 values to detect pattern (3 consecutive increments)
+        if len(values) < 4:
+            continue
+        
+        consecutive_count = 0
+        
+        for i in range(1, len(values)):
+            curr_val = str(values.iloc[i]).strip()
+            prev_val = str(values.iloc[i - 1]).strip()
+            
+            if curr_val == "" or prev_val == "":
+                consecutive_count = 0
+                continue
+            
+            is_increment = False
+            
+            # Case 1: Both are pure numbers
+            try:
+                curr_num = float(curr_val)
+                prev_num = float(prev_val)
+                if curr_num - prev_num == 1:
+                    is_increment = True
+            except (ValueError, TypeError):
+                # Case 2: Text ending with numbers (e.g., BPID_001, BPID_002)
+                curr_suffix = get_numeric_suffix(curr_val)
+                prev_suffix = get_numeric_suffix(prev_val)
+                
+                if curr_suffix and prev_suffix:
+                    curr_prefix = curr_val[:-len(curr_suffix)]
+                    prev_prefix = prev_val[:-len(prev_suffix)]
+                    
+                    if curr_prefix == prev_prefix:
+                        try:
+                            if float(curr_suffix) - float(prev_suffix) == 1:
+                                is_increment = True
+                        except (ValueError, TypeError):
+                            pass
+            
+            if is_increment:
+                consecutive_count += 1
+                if consecutive_count >= 3:
+                    flagged_columns.append(col)
+                    break
+            else:
+                consecutive_count = 0
+    
+    return flagged_columns
+
+
+# ============================================================
+# NEW: CASE DETAILS VALIDATION
+# ============================================================
+
+def validate_case_details(xls):
+    """Validate CASE DETAILS sheet - all columns mandatory except COMMENT."""
+    errors = []
+    warnings = []
+    passes = []
+    
+    if "CASE DETAILS" not in xls.sheet_names:
+        return errors, warnings, passes
+    
+    df = pd.read_excel(xls, sheet_name="CASE DETAILS", header=0)
+    
+    if len(df) == 0:
+        errors.append("CASE DETAILS sheet is EMPTY (must have at least 1 row)")
+        return errors, warnings, passes
+    
+    # Check extra columns
+    extra_cols = check_extra_columns(df, "CASE DETAILS")
+    if extra_cols:
+        errors.append(
+            f"EXTRA COLUMNS not in template: {', '.join(extra_cols)} "
+            f"(only template headers allowed)"
+        )
+    else:
+        passes.append("Column headers match template")
+    
+    # Check mandatory columns (all except COMMENT)
+    mandatory_cols = [c for c in TEMPLATE_COLUMNS["CASE DETAILS"] 
+                      if c not in CASE_DETAILS_OPTIONAL]
+    
+    blank_cols = []
+    for col in mandatory_cols:
+        if col in df.columns:
+            blank_count = df[col].apply(
+                lambda v: pd.isna(v) or str(v).strip() == ""
+            ).sum()
+            if blank_count > 0:
+                blank_cols.append(f"'{col}' ({blank_count} blank)")
+    
+    if blank_cols:
+        errors.append(
+            f"MANDATORY columns have blank cells: {'; '.join(blank_cols[:5])}"
+            f"{'...' if len(blank_cols) > 5 else ''}"
+        )
+    else:
+        passes.append("All mandatory columns filled (COMMENT is optional)")
+    
+    # Drag-down check on CASE DETAILS
+    drag_cols = check_drag_down(df, "CASE DETAILS")
+    if drag_cols:
+        errors.append(
+            f"DRAG-DOWN DETECTED: Values incrementing by +1 in column(s): "
+            f"{', '.join(drag_cols)} (likely fill-down error)"
+        )
+    else:
+        passes.append("No drag-down patterns detected")
+    
+    return errors, warnings, passes
+
+
+# ============================================================
+# MAIN SHEET VALIDATION
+# ============================================================
+
 def validate_sheet(xls, sheet_name, commands):
     errors = []
     warnings = []
     passes = []
 
     if sheet_name not in xls.sheet_names:
+        return errors, warnings, passes
+
+    # Skip CASE DETAILS here (handled separately)
+    if sheet_name == "CASE DETAILS":
         return errors, warnings, passes
 
     df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
@@ -333,7 +690,18 @@ def validate_sheet(xls, sheet_name, commands):
     if len(df) == 0:
         return errors, warnings, passes
 
-    # Mandatory columns check (F, G, H, I) for source sheets
+    # --- CHECK: Extra Columns ---
+    if sheet_name in TEMPLATE_COLUMNS:
+        extra_cols = check_extra_columns(df, sheet_name)
+        if extra_cols:
+            errors.append(
+                f"EXTRA COLUMNS not in template: {', '.join(extra_cols)} "
+                f"(only template headers allowed)"
+            )
+        else:
+            passes.append("Column headers match template")
+
+    # --- Mandatory columns check (F, G, H, I) for source sheets ---
     if sheet_name in SOURCE_SHEETS:
         mandatory_errors = check_mandatory_columns(df, sheet_name)
         for err in mandatory_errors:
@@ -341,7 +709,7 @@ def validate_sheet(xls, sheet_name, commands):
         if not mandatory_errors:
             passes.append("Mandatory columns (Usecase, Auditor, Audit Date, INPUT BPID) all filled")
 
-    # Usecase validation
+    # --- Usecase validation ---
     if sheet_name in SOURCE_SHEETS or sheet_name in COMMAND_SHEETS:
         if "Usecase" in df.columns:
             usecase_vals = df["Usecase"].dropna().astype(str).str.strip()
@@ -357,7 +725,7 @@ def validate_sheet(xls, sheet_name, commands):
                 else:
                     passes.append("Usecase values valid")
 
-    # Auditor validation
+    # --- Auditor validation ---
     if sheet_name in SOURCE_SHEETS or sheet_name in COMMAND_SHEETS:
         if "Auditor" in df.columns:
             auditor_vals = df["Auditor"].dropna().astype(str).str.strip()
@@ -373,7 +741,7 @@ def validate_sheet(xls, sheet_name, commands):
                 else:
                     passes.append("Auditor values valid")
 
-    # Audit Date validation (MM/DD/YYYY format)
+    # --- Audit Date validation (M/DD/YYYY or MM/DD/YYYY format) ---
     if sheet_name in SOURCE_SHEETS or sheet_name in COMMAND_SHEETS:
         if "Audit Date" in df.columns:
             date_col = df["Audit Date"]
@@ -393,13 +761,13 @@ def validate_sheet(xls, sheet_name, commands):
                 if invalid_dates > 0:
                     errors.append(
                         f"INVALID AUDIT DATE FORMAT in {invalid_dates} row(s) "
-                        f"(must be MM/DD/YYYY) at Excel row(s): "
+                        f"(must be M/DD/YYYY or MM/DD/YYYY) at Excel row(s): "
                         f"{invalid_rows}{'...' if invalid_dates > 5 else ''}"
                     )
                 else:
-                    passes.append("Audit Date format valid (MM/DD/YYYY)")
+                    passes.append("Audit Date format valid")
 
-    # Blank rows check (excluding comment/reviewer columns)
+    # --- Blank rows check (excluding comment/reviewer columns) ---
     check_cols = [c for c in df.columns if not is_excluded_column(c, sheet_name)]
     if check_cols:
         df_check = df[check_cols]
@@ -416,13 +784,24 @@ def validate_sheet(xls, sheet_name, commands):
         else:
             passes.append("No blank rows")
 
-    # Duplicate row check (Address + ID)
+    # --- Duplicate row check (Address + ID) ---
     if sheet_name in DUPLICATE_KEY_COLUMNS:
         dup_result = check_duplicate_rows(df, sheet_name)
         if dup_result:
             warnings.append(dup_result)
         else:
             passes.append("No duplicate rows detected")
+
+    # --- CHECK: Drag-Down Detection ---
+    if sheet_name in SOURCE_SHEETS:
+        drag_cols = check_drag_down(df, sheet_name)
+        if drag_cols:
+            errors.append(
+                f"DRAG-DOWN DETECTED: Values incrementing by +1 in column(s): "
+                f"{', '.join(drag_cols)} (likely fill-down error)"
+            )
+        else:
+            passes.append("No drag-down patterns detected")
 
     return errors, warnings, passes
 
@@ -434,7 +813,7 @@ def generate_report(filename, all_errors, all_warnings, all_passes):
     lines.append("=" * 60)
     lines.append(f"File: {filename}")
     lines.append(f"Date: {datetime.now().strftime('%d-%b-%Y %H:%M:%S')}")
-    lines.append(f"Template Version: v2.1 (20 sheets)")
+    lines.append(f"Template Version: v2.2 (20 sheets)")
     lines.append("")
 
     if all_errors:
@@ -467,7 +846,7 @@ def generate_report(filename, all_errors, all_warnings, all_passes):
 
     lines.append("")
     lines.append("=" * 60)
-    lines.append("Generated by LMAQ Sanity Checker v2.1")
+    lines.append("Generated by LMAQ Sanity Checker v2.2")
     lines.append("=" * 60)
 
     return "\n".join(lines)
@@ -495,13 +874,16 @@ with st.sidebar:
     st.markdown("""
     1. **File size** < 1 MB
     2. **20 sheets** required (no missing)
-    3. **Mandatory columns** (F,G,H,I) in source sheets cannot be blank
-    4. **No blank rows** (excl. Comments & Reviewer cols)
-    5. **Usecase** must be from approved list (case-sensitive)
-    6. **Auditor** must be alphabetical only (alias)
-    7. **Audit Date** mandatory, **MM/DD/YYYY** format
-    8. **Command sheets** validated only if command in source
-    9. **Duplicate rows** flagged (Address + ID combination)
+    3. **Extra columns** flagged (only template headers allowed)
+    4. **CASE DETAILS** all columns mandatory (except COMMENT)
+    5. **Mandatory columns** (F,G,H,I) in source sheets cannot be blank
+    6. **No blank rows** (excl. Comments & Reviewer cols)
+    7. **Usecase** must be from approved list (case-sensitive)
+    8. **Auditor** must be alphabetical only (alias)
+    9. **Audit Date** mandatory, **M/DD/YYYY** or **MM/DD/YYYY** format
+    10. **Command sheets** validated only if command in source
+    11. **Duplicate rows** flagged (Address + ID combination)
+    12. **Drag-down** detection (values +1 increment = fill error)
     """)
 
     st.markdown("---")
@@ -570,13 +952,23 @@ if uploaded_file is not None:
     if not sheet_errors and not sheet_warnings:
         all_passes.append(("SHEETS", f"All 20 required sheets present ({len(xls.sheet_names)} total)"))
 
-    # CHECK 3: Get commands from source sheets
+    # CHECK 3: CASE DETAILS validation
+    progress.progress(30, text="Validating CASE DETAILS...")
+    cd_errors, cd_warnings, cd_passes = validate_case_details(xls)
+    for err in cd_errors:
+        all_errors.append(("CASE DETAILS", err))
+    for warn in cd_warnings:
+        all_warnings.append(("CASE DETAILS", warn))
+    for pas in cd_passes:
+        all_passes.append(("CASE DETAILS", pas))
+
+    # CHECK 4: Get commands from source sheets
     progress.progress(35, text="Reading commands from source sheets...")
     commands = get_commands_from_source(xls)
     if commands:
         all_passes.append(("COMMANDS", f"Found {len(commands)} unique command(s): {', '.join(sorted(commands))}"))
 
-    # CHECK 4+: Per-sheet validation
+    # CHECK 5+: Per-sheet validation
     total_sheets = len(REQUIRED_SHEETS)
     for idx, sheet_name in enumerate(REQUIRED_SHEETS):
         pct = 35 + int((idx / total_sheets) * 60)
@@ -662,13 +1054,12 @@ else:
     3. Results appear instantly!
     """)
 
-    st.markdown("### 📝 What's New in v2.1")
+    st.markdown("### 📝 What's New in v2.2")
     st.markdown("""
-    - **20 sheets**: AID (source), MOVE_AID & CREATE_LG (command)
-    - **Mandatory columns**: F,G,H,I checked in all 4 source sheets
-    - **Audit Date**: Strict MM/DD/YYYY format
-    - **Updated usecases**: 10 approved values
-    - **Duplicate detection**: Address + ID combination per sheet
-    - **Downloadable report**: Export results as text file
+    - **Drag-down detection**: Flags columns where values increment by +1 (fill-down error)
+    - **Extra columns detection**: Flags columns not in template (ALL 20 sheets)
+    - **CASE DETAILS validation**: All columns mandatory except COMMENT
+    - **Date format**: Accepts M/DD/YYYY or MM/DD/YYYY
+    - All previous checks from v2.1 intact
     """)
 
