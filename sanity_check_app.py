@@ -1,14 +1,19 @@
 
 #!/usr/bin/env python3
 """
-CC_AMT_PIPELINE Sanity Check Web App (v2.2)
+CC_AMT_PIPELINE Sanity Check Web App (v2.3)
 =============================================
 SETUP:  pip install streamlit pandas openpyxl
 RUN:    streamlit run sanity_check_app.py
 
-v2.2 Features:
+v2.3 Features:
+- Updated usecases for CC_Reactive template
+- "Upload error" column added to source sheets (CAMPUS, BUILDING, UNIT, AID)
+- "REFLECTING YES/NO/CLI-NO" renamed to "REFLECTING YES/NO" in source sheets
+- AID sheet: "Type" column removed
+- CREATE_LG sheet: "NEW ID" column added
 - N/A treated as valid value (not blank) across all sheets (keep_default_na=False)
-- Row-level cell validation: every cell must be filled (excl. first 5, COMMENTS, New ID)
+- Row-level cell validation: every cell must be filled (excl. first 5, COMMENTS, Upload error, New ID)
 - Drag-down detection (CAMPUS, BUILDING, UNIT, AID only, excl. Unit Label & AID Label)
 - Extra columns detection (ALL 20 sheets)
 - CASE DETAILS: All columns mandatory except COMMENT
@@ -142,17 +147,18 @@ SOURCE_SHEETS = ["CAMPUS", "BUILDING", "UNIT", "AID"]
 
 MANDATORY_SOURCE_COLUMNS = ["Usecase", "Auditor", "Audit Date", "INPUT BPID"]
 
+# ── v2.3: Updated usecases for CC_Reactive template ──
 VALID_USECASES = [
-    "CC_AB_Campus_Audit",
-    "CC_Cheetah_ORD_AUDIT",
-    "CC_ORD_Point_Corrections_EU",
-    "CC_ORD_Point_Corrections_NA",
-    "CC_ORD_Point_Corrections_Rocket_Stations_NA",
-    "CC_SIMS_Audit",
+    "Places_Ops_CC_Reactive_SIMs_Audit",
+    "CC_Reactive_SIMs_Hierarchy_Support",
+    "Places_Ops_CC_Reactive_SIMs_Audit_AB",
+    "Places_Ops_CC_Reactive_SIMs_Audit_ORD",
+    "Places_Ops_CC_Reactive_SIMs_Hierarchy_Support_Audit",
+    "Places_Ops_CC_Reactive_Floor_Audit",
+    "Places_Ops_CC_Reactive_DSP_Unit_Backlog_Audit",
+    "Places_Ops_CC_Reactive_DSP_Building_Backlog_Audit",
     "DSP_Hierarchy_Building_P0",
     "DSP_Hierarchy_Building_P1",
-    "DSP_Hierarchy_Unit_P0",
-    "CC_River-DSP_AUDIT"
 ]
 
 COMMENT_COLUMNS = ["COMMENT", "COMMENTS", "Reviewer comments"]
@@ -175,10 +181,10 @@ DRAG_DOWN_EXCEPTIONS = {
     "AID": ["AID Label"],
 }
 
-# Columns to EXCLUDE from row-level cell validation in source sheets
+# ── v2.3: Added "Upload error" to exclusion list for row-level cell validation ──
 ROW_VALIDATION_EXCLUDE = [
     "Reviewer usecase", "Reviewer alias", " Date", "Reviewer Verdict  ",
-    "Reviewer comments", "COMMENTS", "New ID"
+    "Reviewer comments", "COMMENTS", "Upload error", "New ID"
 ]
 
 # N/A variants treated as valid (not blank)
@@ -199,13 +205,15 @@ TEMPLATE_COLUMNS = {
         "CHECK FOR DUPLICATE INPUTS IN FILE", "SANITIZATION CHECK",
         "FILE UPLOAD STATUS", "REFLECTION STATUS", "COMMENT"
     ],
+    # ── v2.3: REFLECTING YES/NO/CLI-NO → REFLECTING YES/NO, added "Upload error" ──
     "CAMPUS": [
         "Reviewer usecase", "Reviewer alias", " Date", "Reviewer Verdict  ",
         "Reviewer comments", "Usecase", "Auditor", "Audit Date", "INPUT BPID",
         "Campus Address", "Campus ID(SOURCE)", "COMMAND", "Error Type",
         "TARGET CAMPUS ID", "COMMENTS", "Uploaded the command(YES/NO/)",
-        "UPLOADED THROUGH-CLI/GUI", "REFLECTING YES/NO/CLI-NO", "New ID"
+        "UPLOADED THROUGH-CLI/GUI", "REFLECTING YES/NO", "Upload error", "New ID"
     ],
+    # ── v2.3: REFLECTING YES/NO/CLI-NO → REFLECTING YES/NO, added "Upload error" ──
     "BUILDING": [
         "Reviewer usecase", "Reviewer alias", " Date", "Reviewer Verdict  ",
         "Reviewer comments", "Usecase", "Auditor", "Audit Date", "INPUT BPID",
@@ -213,8 +221,9 @@ TEMPLATE_COLUMNS = {
         "BPID type", "COMMAND", "Error type - Building",
         "Target Node(If action taken is yes)", "COMMENTS",
         "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
-        "REFLECTING YES/NO/CLI-NO", "New ID"
+        "REFLECTING YES/NO", "Upload error", "New ID"
     ],
+    # ── v2.3: REFLECTING YES/NO/CLI-NO → REFLECTING YES/NO, added "Upload error" ──
     "UNIT": [
         "Reviewer usecase", "Reviewer alias", " Date", "Reviewer Verdict  ",
         "Reviewer comments", "Usecase", "Auditor", "Audit Date", "INPUT BPID",
@@ -223,8 +232,9 @@ TEMPLATE_COLUMNS = {
         "Target Node(If action taken is yes)",
         "Hierarchy BPID(BPID after taking action)", "COMMENTS",
         "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
-        "REFLECTING YES/NO/CLI-NO", "New ID", "Type"
+        "REFLECTING YES/NO", "Upload error", "New ID", "Type"
     ],
+    # ── v2.3: REFLECTING YES/NO/CLI-NO → REFLECTING YES/NO, added "Upload error", removed "Type" ──
     "AID": [
         "Reviewer usecase", "Reviewer alias", " Date", "Reviewer Verdict  ",
         "Reviewer comments", "Usecase", "Auditor", "Audit Date", "INPUT BPID",
@@ -232,7 +242,7 @@ TEMPLATE_COLUMNS = {
         "Error type - AID", "Target Node(If action taken is yes)",
         "Hierarchy BPID(BPID after taking action)", "COMMENTS",
         "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
-        "REFLECTING YES/NO/CLI-NO", "New ID", "Type"
+        "REFLECTING YES/NO", "Upload error", "New ID"
     ],
     "CREATE_CAMPUS": [
         "Usecase", "Auditor", "Audit Date", "INPUT BPID", "COMMAND",
@@ -369,10 +379,11 @@ TEMPLATE_COLUMNS = {
         "Uploaded the command(YES/NO/)", "UPLOADED THROUGH-CLI/GUI",
         "REFLECTING YES/NO/CLI-NO"
     ],
+    # ── v2.3: Added "NEW ID" column ──
     "CREATE_LG": [
         "Usecase", "Auditor", "Audit Date", "INPUT BPID", "CREATE_LG",
         "Source Node (AID)", "Uploaded the command(YES/NO/)",
-        "UPLOADED THROUGH-CLI/GUI", "REFLECTING YES/NO/CLI-NO"
+        "UPLOADED THROUGH-CLI/GUI", "REFLECTING YES/NO/CLI-NO", "NEW ID"
     ]
 }
 
@@ -535,7 +546,7 @@ def check_extra_columns(df, sheet_name):
 def check_row_level_cells(df, sheet_name):
     """
     For each row that has data (first 4 mandatory cols filled),
-    check ALL other columns (except first 5 reviewer, COMMENTS, New ID).
+    check ALL other columns (except first 5 reviewer, COMMENTS, Upload error, New ID).
     If any cell is blank → error. N/A is treated as valid.
     """
     if sheet_name not in SOURCE_SHEETS:
@@ -851,7 +862,7 @@ def validate_sheet(xls, sheet_name, commands):
             for err in cell_errors:
                 errors.append(err)
         else:
-            passes.append("All cells filled in data rows (excl. Reviewer/COMMENTS/New ID)")
+            passes.append("All cells filled in data rows (excl. Reviewer/COMMENTS/Upload error/New ID)")
 
     # --- Duplicate row check (Address + ID) ---
     if sheet_name in DUPLICATE_KEY_COLUMNS:
@@ -882,7 +893,7 @@ def generate_report(filename, all_errors, all_warnings, all_passes):
     lines.append("=" * 60)
     lines.append(f"File: {filename}")
     lines.append(f"Date: {datetime.now().strftime('%d-%b-%Y %H:%M:%S')}")
-    lines.append(f"Template Version: v2.2 (20 sheets)")
+    lines.append(f"Template Version: v2.3 (20 sheets, CC_Reactive)")
     lines.append("")
 
     if all_errors:
@@ -915,7 +926,7 @@ def generate_report(filename, all_errors, all_warnings, all_passes):
 
     lines.append("")
     lines.append("=" * 60)
-    lines.append("Generated by LMAQ Sanity Checker v2.2")
+    lines.append("Generated by LMAQ Sanity Checker v2.3")
     lines.append("=" * 60)
 
     return "\n".join(lines)
@@ -945,7 +956,7 @@ with st.sidebar:
     3. **Extra columns** flagged in ALL sheets (only template headers allowed)
     4. **CASE DETAILS** all columns mandatory (except COMMENT)
     5. **Mandatory columns** (F,G,H,I) in source sheets cannot be blank
-    6. **Row-level validation**: Every cell must be filled (excl. first 5, COMMENTS, New ID)
+    6. **Row-level validation**: Every cell must be filled (excl. first 5, COMMENTS, Upload error, New ID)
     7. **No blank rows** (excl. Comments & Reviewer cols)
     8. **Usecase** must be from approved list (case-sensitive)
     9. **Auditor** must be alphabetical only (alias)
@@ -1124,13 +1135,17 @@ else:
     3. Results appear instantly!
     """)
 
-    st.markdown("### 📝 What's New in v2.2")
+    st.markdown("### 📝 What's New in v2.3")
     st.markdown("""
+    - **Updated Usecases**: New CC_Reactive usecase names (Places_Ops_CC_Reactive_*)
+    - **Upload error column**: New column added to CAMPUS, BUILDING, UNIT, AID sheets
+    - **REFLECTING YES/NO**: Renamed from REFLECTING YES/NO/CLI-NO in source sheets
+    - **AID sheet**: "Type" column removed
+    - **CREATE_LG sheet**: "NEW ID" column added
     - **N/A is valid**: N/A, n/a, NA treated as filled value (not blank) in ALL sheets
-    - **Row-level cell check**: Every cell must have a value (excl. first 5 reviewer cols, COMMENTS, New ID)
+    - **Row-level cell check**: Every cell must have a value (excl. Reviewer/COMMENTS/Upload error/New ID)
     - **Drag-down detection**: Flags +1 increment in source sheets (excl. Unit Label & AID Label)
     - **Extra columns detection**: Flags columns not in template (ALL 20 sheets)
     - **CASE DETAILS validation**: All columns mandatory except COMMENT
-    - **Date format**: Accepts M/DD/YYYY or MM/DD/YYYY
     """)
 
